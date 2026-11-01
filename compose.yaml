@@ -1,0 +1,81 @@
+# Development only. Start one database profile, migrate, then start app processes.
+name: rust-api-skeleton
+
+x-app: &app
+  image: rust-api-skeleton:local
+  build:
+    context: .
+    args:
+      DB_FEATURES: ${DB_FEATURES:-postgres,mysql}
+  env_file: .env
+  environment:
+    DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
+    APP_HOST: 0.0.0.0
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 60s
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    profiles: [postgres]
+    environment:
+      POSTGRES_DB: rust_api
+      POSTGRES_USER: rust_api
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U rust_api -d rust_api"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mysql:
+    image: mysql:8.4
+    profiles: [mysql]
+    environment:
+      MYSQL_DATABASE: rust_api
+      MYSQL_USER: rust_api
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-development-only}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local-root-only}
+    command: [--default-time-zone=+00:00]
+    ports: ["127.0.0.1:3306:3306"]
+    volumes: [mysql_data:/var/lib/mysql]
+    healthcheck:
+      test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *app
+    profiles: [tools]
+    command: [migrate]
+    restart: "no"
+    healthcheck:
+      disable: true
+
+  api:
+    <<: *app
+    command: [api]
+    ports: ["127.0.0.1:${APP_PORT:-3000}:${APP_PORT:-3000}"]
+
+  worker:
+    <<: *app
+    command: [worker]
+    healthcheck:
+      disable: true
+
+  scheduler:
+    <<: *app
+    command: [scheduler]
+    healthcheck:
+      disable: true
+
+volumes:
+  postgres_data:
+  mysql_data:
