@@ -238,8 +238,11 @@ readiness API terhadap database/schema; endpoint ini tidak membuktikan keberadaa
 worker, kesehatan Redis queue, atau keberhasilan pengiriman email. Detail query
 diagnosis dan retry tersedia di [panduan operasi](operations.md#pemeriksaan-queue).
 
-Retensi completed jobs dikendalikan maintenance. Failed jobs tetap tersedia untuk
-inspeksi di SQL. Consumer membersihkan metadata terminal Apalis secara otomatis
+Retensi completed jobs dikendalikan maintenance dengan maksimum 1.000 baris per
+panggilan pada driver database maupun Redis/outbox. Seleksi PK memakai urutan
+`updated_at` dan PK, indeks retention, serta `SKIP LOCKED`; penghapusan batch ada
+dalam transaksi yang sama. Failed jobs tetap tersedia untuk inspeksi di SQL.
+Consumer membersihkan metadata terminal Apalis secara otomatis
 dalam batch terbatas; cleanup dapat tertunda ketika Redis tidak tersedia. Source
 audit status/hasil tetap SQL, sehingga metadata delivery terminal tidak perlu
 disimpan sebagai riwayat bisnis kedua.

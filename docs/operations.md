@@ -188,16 +188,30 @@ payload/ID demi memaksa perpindahan backend.
 Query berikut berlaku untuk PostgreSQL dan MySQL:
 
 ```sql
-SELECT status, COUNT(id) AS total
+SELECT status, COUNT(job_id) AS total
 FROM jobs GROUP BY status;
 
-SELECT id, kind, status, attempts, available_at, locked_until,
+SELECT job_id, kind, status, attempts, available_at, locked_until,
+       claimable_at, last_error, created_at, updated_at
+FROM jobs
+WHERE claimable_at IS NOT NULL
+ORDER BY claimable_at, created_at, job_id
+LIMIT 100;
+
+SELECT job_id, kind, status, attempts,
        last_error, created_at, updated_at
 FROM jobs
-WHERE status IN ('pending', 'running', 'failed')
-ORDER BY created_at, id
+WHERE status = 'failed'
+ORDER BY updated_at, job_id
 LIMIT 100;
 ```
+
+`claimable_at` adalah kolom generated: waktu tersedia untuk pending, waktu lease
+berakhir untuk running, dan NULL untuk terminal. Worker mengurutkan eligibility
+lalu `created_at, job_id` melalui indeks; jangan menulis kolom generated langsung.
+Untuk halaman diagnosis berikutnya, pakai tuple sort terakhir sebagai cursor.
+Maintenance menghapus maksimal 1.000 completed job per panggilan dengan pilihan
+PK terurut dan `SKIP LOCKED`; batch berikutnya melanjutkan sisa baris eligible.
 
 Jangan mengubah token/lease job yang sedang running. Lease default 90 detik dan
 job timeout 30 detik; konfigurasi menolak lease yang terlalu pendek. Tidak ada
@@ -252,7 +266,7 @@ UPDATE jobs
 SET status = 'pending', attempts = 0, available_at = clock_timestamp(),
     lock_token = NULL, locked_until = NULL, last_error = NULL,
     updated_at = clock_timestamp()
-WHERE id = 'PUT-FAILED-JOB-UUID-HERE' AND status = 'failed';
+WHERE job_id = 'PUT-FAILED-JOB-UUID-HERE' AND status = 'failed';
 ```
 
 Contoh MySQL:
@@ -262,7 +276,7 @@ UPDATE jobs
 SET status = 'pending', attempts = 0, available_at = UTC_TIMESTAMP(6),
     lock_token = NULL, locked_until = NULL, last_error = NULL,
     updated_at = UTC_TIMESTAMP(6)
-WHERE id = 'PUT-FAILED-JOB-UUID-HERE' AND status = 'failed';
+WHERE job_id = 'PUT-FAILED-JOB-UUID-HERE' AND status = 'failed';
 ```
 
 Periksa affected rows = 1. Jangan menjalankan UPDATE massal tanpa meninjau side

@@ -1,4 +1,4 @@
-//! Explicit, offline compiler check for generated projects. Run separately from
+//! Offline compiler and factory-contract checks for generated projects. Run separately from
 //! normal tests because it starts Cargo with its own target directory.
 
 use std::{fs, path::Path, process::Command};
@@ -47,13 +47,19 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
     for (command, name) in [
         ("make:controller", "CustomerController"),
         ("make:model", "Customer"),
+        ("make:model", "CompanyModel"),
+        ("make:model", "Person"),
+        ("make:model", "Status"),
         ("make:model", "Uuid"),
         ("make:request", "CreateCustomerRequest"),
         ("make:service", "CustomerService"),
         ("make:repository", "CustomerRepository"),
+        ("make:repository", "PersonRepo"),
+        ("make:repository", "StatusRepository"),
         ("make:job", "SendInvoiceJob"),
         ("make:middleware", "AuditMiddleware"),
         ("make:migration", "create_customers_table"),
+        ("make:migration", "create_people_table"),
     ] {
         successful(
             Command::new(env!("CARGO_BIN_EXE_artisan"))
@@ -63,6 +69,34 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
     }
     assert_eq!(fs::read(root.join("src/routes/api.rs")).unwrap(), route);
     assert_eq!(fs::read(root.join("src/jobs/worker.rs")).unwrap(), worker);
+    fs::create_dir(root.join("tests")).unwrap();
+    fs::write(
+        root.join("tests/generated_models.rs"),
+        r#"use rust_api_skeleton::domain::models;
+
+macro_rules! assert_factory {
+    ($model:ty, $primary_key:ident) => {{
+        let created = <$model>::new();
+        let default = <$model>::default();
+        assert_eq!(created.$primary_key.get_version_num(), 7);
+        assert_eq!(default.$primary_key.get_version_num(), 7);
+        assert_ne!(created.$primary_key, default.$primary_key);
+        assert_eq!(created.created_at, created.updated_at);
+        assert_eq!(default.created_at, default.updated_at);
+    }};
+}
+
+#[test]
+fn generated_models_create_named_uuid_v7_keys_with_consistent_timestamps() {
+    assert_factory!(models::customer::Customer, customer_id);
+    assert_factory!(models::company::Company, company_id);
+    assert_factory!(models::person::Person, person_id);
+    assert_factory!(models::status::Status, status_id);
+    assert_factory!(models::uuid::Uuid, uuid_id);
+}
+"#,
+    )
+    .unwrap();
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let target = original.join("target/artisan-scaffold-check");
     for args in [
@@ -76,6 +110,14 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
             "--",
             "-D",
             "warnings",
+        ],
+        vec![
+            "test",
+            "--locked",
+            "--offline",
+            "--all-features",
+            "--test",
+            "generated_models",
         ],
         vec![
             "check",

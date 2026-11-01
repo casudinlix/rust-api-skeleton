@@ -213,10 +213,15 @@ async fn register(state: &AppState, email: &str) -> Result<String> {
             password: "public-test-password-for-registration".to_owned(),
         })
         .await?;
-    ensure!(response.user.id.get_version_num() == 7);
+    ensure!(response.user.user_id.get_version_num() == 7);
     let repository = repositories::user_repository_with_queue(&state.database, QueueDriver::Redis);
-    ensure!(repository.find_by_id(response.user.id).await?.is_some());
-    Ok(format!("welcome:{}", response.user.id))
+    ensure!(
+        repository
+            .find_by_id(response.user.user_id)
+            .await?
+            .is_some()
+    );
+    Ok(format!("welcome:{}", response.user.user_id))
 }
 
 async fn repository_collision_rolls_back_user(
@@ -236,7 +241,7 @@ async fn repository_collision_rolls_back_user(
     let repository = repositories::user_repository_with_queue(database, QueueDriver::Redis);
     let outcome = repository
         .create_with_welcome_job(NewUser {
-            id: user_id,
+            user_id,
             name: "Transaction rollback".to_owned(),
             email: "rollback@example.com".to_owned(),
             password_hash: "test-only-unused-hash".to_owned(),
@@ -429,7 +434,7 @@ async fn snapshot(
         DatabasePool::Postgres(pool) => {
             let sql = match table {
                 JobTable::Database => {
-                    "SELECT id AS job_id, status, attempts, last_error FROM jobs WHERE deduplication_key = $1"
+                    "SELECT job_id, status, attempts, last_error FROM jobs WHERE deduplication_key = $1"
                 }
                 JobTable::Outbox => {
                     "SELECT job_outbox_id AS job_id, status, attempts, last_error FROM job_outbox WHERE deduplication_key = $1"
@@ -453,7 +458,7 @@ async fn snapshot(
         DatabasePool::Mysql(pool) => {
             let sql = match table {
                 JobTable::Database => {
-                    "SELECT id AS job_id, status, attempts, last_error FROM jobs WHERE deduplication_key = ?"
+                    "SELECT job_id, status, attempts, last_error FROM jobs WHERE deduplication_key = ?"
                 }
                 JobTable::Outbox => {
                     "SELECT job_outbox_id AS job_id, status, attempts, last_error FROM job_outbox WHERE deduplication_key = ?"

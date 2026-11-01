@@ -192,6 +192,19 @@ mempertahankan import, export, dan implementasi yang sudah ada. Hasil scaffold
 dibuat agar dapat dikompilasi. Method bisnis yang belum diimplementasikan
 mengembalikan error eksplisit; scaffold bukan CRUD yang sudah selesai.
 
+`NAME` model/repository menyebut **entitas tunggal secara eksplisit**. Misalnya
+`Customer` menghasilkan `customer_id`, `Company` menghasilkan `company_id`,
+dan `Person` menghasilkan `person_id`; mapping tabel `people` harus Anda tulis
+dalam desain. Generator tidak menebak singular dengan membuang huruf `s`.
+Model menyediakan `new()`/`Default` yang membuat PK UUIDv7 dan timestamp UTC.
+Repository stub memakai parameter PK dengan nama entitas yang sama. Migration
+tetap perlu dilengkapi dengan kolom, constraint, dan indeks sesuai query nyata.
+
+Contoh existing sudah memakai `users.user_id`, `jobs.job_id`, proyeksi user tanpa
+credential untuk operasi publik, dan cursor berversi. Rujuk
+[desain contoh](design/example-rule-alignment.md) saat menyalin pola tersebut;
+file migration awal adalah riwayat skema dan disusul migration rename yang baru.
+
 Lengkapi fitur secara berurutan:
 
 1. Lengkapi `docs/design/<nama_fitur>.md`, migration PostgreSQL/MySQL, serta

@@ -315,3 +315,104 @@ log simulation, so no real email was sent.
   rules were not silently migrated by this feature.
 - Local verification is the acceptance evidence. GitHub Actions availability or
   quota is not used as the completion gate, and no production deployment was made.
+
+## Existing example rule alignment — 2026-11-01 UTC
+
+This verification covers the changes after baseline `260adcb`: named user/job
+primary keys across the current examples and generators, UUIDv7 creation guards,
+public user projections, versioned cursors, and bounded indexed queue maintenance.
+The paired new migration is `20261102000000_align_example_primary_keys.sql`.
+The six previously committed migration files are unchanged.
+
+### Final checks
+
+Final application checks used Rust 1.99.1, PostgreSQL 16.15, MySQL 8.0.46, and
+Redis 8.0.5 on local disposable databases/namespaces. After detecting stale local
+artifacts containing an earlier migration candidate, the package artifacts were
+removed with `cargo clean -p rust-api-skeleton` and the final checks below were
+run with `CARGO_INCREMENTAL=0`. Each resulting database/queue test executable was
+also checked to contain the final guarded MySQL migration before integration
+execution. No migration ledger or checksum was modified to bypass readiness.
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: formatting, all-feature clippy with warnings denied, 133 nonignored tests, one rustdoc example, PostgreSQL-only and MySQL-only all-target builds |
+| `make test-postgres` | Passed all five suites: API, users, database queue, outbox, schema upgrade |
+| `make test-mysql` | Passed the same five suites on the final migration |
+| `make test-queue-postgres` | Passed real registration/outbox/Redis/worker integration |
+| `make test-queue-mysql` | Passed the equivalent Redis worker integration |
+| `make test-scaffolds` | Passed fresh generated-project formatting, clippy, a running model-factory contract test, and both single-driver builds |
+| `git diff --check` and local documentation-link validation | Passed |
+| Representative query plans | Accepted on 50,000 users and 50,000 jobs per engine; final MySQL generated-expression fix remeasured |
+
+Ignored tests in the default run are not counted as executed integration tests.
+The dedicated cache and transport-only suites were not rerun for this change;
+those implementations are unchanged. The Redis end-to-end suites above do run
+real delivery and worker execution with both database drivers. Scaffold checks
+ran against a separate generated fixture; its model-factory test verifies actual
+UUID versions and values rather than only matching source strings.
+
+### Behavior established
+
+- Upgrading the three historical migrations preserves every tested user/job
+  value, including UUIDv4 and UUIDv7 identifiers, password hashes, payloads,
+  deduplication keys, status, attempts, lease tokens, and microsecond timestamps.
+  Migration checksums remain unchanged; rerunning migrations succeeds and the
+  final schema has `users.user_id`, `jobs.job_id`, and `job_outbox.job_outbox_id`.
+- A historical UUIDv4 job is claimed and completed through `DatabaseQueue` with
+  its original identifier. Fabricated tokens and repeated ACKs are rejected.
+  Legacy user UUIDs also remain valid JWT subjects.
+- New users, welcome jobs, standalone jobs, and outbox rows use UUIDv7. Direct
+  repository creation rejects invalid new UUID versions before data queries.
+  Registration rejects caller-supplied `id` and `user_id` fields.
+- Public user JSON exposes `user_id`. List/detail/profile and create/update
+  result projections omit credential material. Only the login repository
+  projection selects `password_hash`; its type cannot be serialized.
+- Scoped SQLx instrumentation observes exactly one data query for each first and
+  next user page at limits 1, 20, and 100, with at most `limit + 1` returned rows.
+  Public lookup/contact, create/update/delete, and invalid-ID budgets are checked
+  separately. No optional cache hides queries from these assertions.
+- Cursor tests cover version/resource/sort/scope, malformed/unknown fields,
+  timestamp precision, tied timestamps, concurrent inserts/deletes, and reset of
+  the former unversioned format. Authorization still reads the current DB role.
+- Claim order follows actual eligibility and deterministic PK ties. Retention
+  deletes 1,000 then four unlocked old rows, skips a locked fifth remainder, and
+  deletes that row after unlocking. Recent, pending, and failed records survive.
+- Generated Customer, Company, Person, Status, and Uuid models produce named
+  UUIDv7 keys from both `new()` and `Default`. Explicit singular names preserve
+  irregular table mappings and entities ending in `s`; repository parameters
+  follow the same names.
+
+### MySQL regression resolved before completion
+
+The first MySQL integration attempt exposed error 1292 when an omitted
+`available_at` default was observed as a zero datetime during an early generated
+column evaluation. Changing to a virtual generated column or an expression
+DEFAULT did not resolve it. The final MySQL expression guards its branches with
+`YEAR(...) > 0`; after defaults are filled, the stored `claimable_at` matches the
+final timestamp exactly. Strict mode stays enabled, and explicit zero dates
+remain rejected. SQLx prepared-statement regressions verify omitted values,
+explicit DEFAULT, explicit microseconds, and running/retry transitions. The
+related upstream report and final query plans are in the
+[design record](design/example-rule-alignment.md).
+
+A schema-test metadata decoder also needed to read MySQL's binary text wire
+values as bytes and validate UTF-8, consistent with the application's adapter.
+This was a test-reader fix; column types/collations were preserved.
+
+### Compatibility and limits
+
+User JSON changes from `id` to `user_id`; clients must update field access and
+restart old cursors. Existing UUID values, JWT subjects, job payload references,
+and deduplication keys are preserved. Apply the new migration and binaries in
+one coordinated maintenance window: adding stored generated/indexed data may
+rewrite or rebuild a populated table. MySQL's multi-statement DDL is not one
+transaction; the design record documents forward recovery and rollback needs.
+
+Measurements establish access paths and batch bounds, not production throughput
+or latency guarantees. This run used MySQL 8.0.46; the configured CI/Compose 8.4
+runtime was not executed here. Docker builds, live SMTP, production failover,
+and production deployment were not part of this change. The prior verification
+sections remain historical records, including their earlier legacy limitations;
+this section records the subsequent example alignment. GitHub runner quota was
+not used as an acceptance gate.

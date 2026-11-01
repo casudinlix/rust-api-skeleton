@@ -13,11 +13,13 @@ use super::{
     validation::{safe_failure_reason, validate_job},
 };
 
+const PRUNE_BATCH_SIZE: i64 = 1_000;
+
 /// A committed reservation. Its token is replaced on every claim, including
 /// recovery after a crashed worker. Payloads deliberately do not implement Debug.
 #[derive(Clone)]
 pub struct ReservedJob {
-    pub id: Uuid,
+    pub job_id: Uuid,
     pub kind: String,
     pub payload: Value,
     pub attempts: u32,
@@ -44,24 +46,24 @@ impl DatabaseQueue {
         deduplication_key: Option<&str>,
     ) -> AppResult<()> {
         validate_job(kind, &payload, deduplication_key)?;
-        let id = Uuid::now_v7();
+        let job_id = Uuid::now_v7();
         match &self.database {
             #[cfg(feature = "postgres")]
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "INSERT INTO jobs (id, kind, payload, deduplication_key) VALUES ($1, $2, $3, $4) \
+                    "INSERT INTO jobs (job_id, kind, payload, deduplication_key) VALUES ($1, $2, $3, $4) \
                      ON CONFLICT (deduplication_key) DO NOTHING",
                 )
-                .bind(id).bind(kind).bind(Json(payload)).bind(deduplication_key)
+                .bind(job_id).bind(kind).bind(Json(payload)).bind(deduplication_key)
                 .execute(pool).await?;
             }
             #[cfg(feature = "mysql")]
             DatabasePool::Mysql(pool) => {
                 sqlx::query(
-                    "INSERT INTO jobs (id, kind, payload, deduplication_key) VALUES (?, ?, ?, ?) \
-                     ON DUPLICATE KEY UPDATE id = id",
+                    "INSERT INTO jobs (job_id, kind, payload, deduplication_key) VALUES (?, ?, ?, ?) \
+                     ON DUPLICATE KEY UPDATE job_id = job_id",
                 )
-                .bind(id.to_string())
+                .bind(job_id.to_string())
                 .bind(kind)
                 .bind(Json(payload))
                 .bind(deduplication_key)
@@ -89,7 +91,7 @@ impl DatabaseQueue {
     async fn claim_postgres(&self, pool: &sqlx::PgPool) -> AppResult<Option<ReservedJob>> {
         #[derive(sqlx::FromRow)]
         struct JobRow {
-            id: Uuid,
+            job_id: Uuid,
             kind: String,
             payload: Json<Value>,
             attempts: i64,
@@ -99,10 +101,9 @@ impl DatabaseQueue {
         let mut transaction = pool.begin().await?;
         for _ in 0..32 {
             let row = sqlx::query_as::<_, JobRow>(
-                "SELECT id, kind, payload, attempts FROM jobs \
-                 WHERE (status = 'pending' AND available_at <= clock_timestamp()) \
-                    OR (status = 'running' AND locked_until <= clock_timestamp()) \
-                 ORDER BY available_at, created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                "SELECT job_id, kind, payload, attempts FROM jobs \
+                 WHERE claimable_at <= statement_timestamp() \
+                 ORDER BY claimable_at, created_at, job_id LIMIT 1 FOR UPDATE SKIP LOCKED",
             )
             .fetch_optional(&mut *transaction)
             .await?;
@@ -113,8 +114,8 @@ impl DatabaseQueue {
             if row.attempts >= i64::from(self.config.max_attempts) {
                 sqlx::query(
                     "UPDATE jobs SET status = 'failed', locked_until = NULL, lock_token = NULL, \
-                     last_error = 'attempt_limit_reached', updated_at = clock_timestamp() WHERE id = $1",
-                ).bind(row.id).execute(&mut *transaction).await?;
+                     last_error = 'attempt_limit_reached', updated_at = clock_timestamp() WHERE job_id = $1",
+                ).bind(row.job_id).execute(&mut *transaction).await?;
                 continue;
             }
             let attempts = next_attempt(row.attempts)?;
@@ -122,16 +123,16 @@ impl DatabaseQueue {
             sqlx::query(
                 "UPDATE jobs SET status = 'running', attempts = attempts + 1, lock_token = $2, \
                  locked_until = clock_timestamp() + ($3::bigint * INTERVAL '1 second'), \
-                 updated_at = clock_timestamp() WHERE id = $1",
+                 updated_at = clock_timestamp() WHERE job_id = $1",
             )
-            .bind(row.id)
+            .bind(row.job_id)
             .bind(lock_token)
             .bind(lease)
             .execute(&mut *transaction)
             .await?;
             transaction.commit().await?;
             return Ok(Some(ReservedJob {
-                id: row.id,
+                job_id: row.job_id,
                 kind: row.kind,
                 payload: row.payload.0,
                 attempts,
@@ -148,7 +149,7 @@ impl DatabaseQueue {
         struct JobRow {
             // SQLx treats MySQL binary collations as binary wire values even
             // when the column is CHAR/VARCHAR. Decode bytes deliberately.
-            id: Vec<u8>,
+            job_id: Vec<u8>,
             kind: Vec<u8>,
             payload: Json<Value>,
             attempts: i64,
@@ -158,10 +159,9 @@ impl DatabaseQueue {
         let mut transaction = pool.begin().await?;
         for _ in 0..32 {
             let row = sqlx::query_as::<_, JobRow>(
-                "SELECT id, kind, payload, attempts FROM jobs \
-                 WHERE (status = 'pending' AND available_at <= UTC_TIMESTAMP(6)) \
-                    OR (status = 'running' AND locked_until <= UTC_TIMESTAMP(6)) \
-                 ORDER BY available_at, created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                "SELECT job_id, kind, payload, attempts FROM jobs \
+                 WHERE claimable_at <= UTC_TIMESTAMP(6) \
+                 ORDER BY claimable_at, created_at, job_id LIMIT 1 FOR UPDATE SKIP LOCKED",
             )
             .fetch_optional(&mut *transaction)
             .await?;
@@ -169,15 +169,15 @@ impl DatabaseQueue {
                 transaction.commit().await?;
                 return Ok(None);
             };
-            let id = std::str::from_utf8(&row.id)
+            let job_id = std::str::from_utf8(&row.job_id)
                 .ok()
                 .and_then(|value| Uuid::parse_str(value).ok())
                 .ok_or_else(|| anyhow::anyhow!("stored job ID is invalid"))?;
             if row.attempts >= i64::from(self.config.max_attempts) {
                 sqlx::query(
                     "UPDATE jobs SET status = 'failed', locked_until = NULL, lock_token = NULL, \
-                     last_error = 'attempt_limit_reached', updated_at = UTC_TIMESTAMP(6) WHERE id = ?",
-                ).bind(id.to_string()).execute(&mut *transaction).await?;
+                     last_error = 'attempt_limit_reached', updated_at = UTC_TIMESTAMP(6) WHERE job_id = ?",
+                ).bind(job_id.to_string()).execute(&mut *transaction).await?;
                 continue;
             }
             let attempts = next_attempt(row.attempts)?;
@@ -187,16 +187,16 @@ impl DatabaseQueue {
             sqlx::query(
                 "UPDATE jobs SET status = 'running', attempts = attempts + 1, lock_token = ?, \
                  locked_until = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? SECOND), \
-                 updated_at = UTC_TIMESTAMP(6) WHERE id = ?",
+                 updated_at = UTC_TIMESTAMP(6) WHERE job_id = ?",
             )
             .bind(lock_token.to_string())
             .bind(lease)
-            .bind(id.to_string())
+            .bind(job_id.to_string())
             .execute(&mut *transaction)
             .await?;
             transaction.commit().await?;
             return Ok(Some(ReservedJob {
-                id,
+                job_id,
                 kind,
                 payload: row.payload.0,
                 attempts,
@@ -214,14 +214,14 @@ impl DatabaseQueue {
             DatabasePool::Postgres(pool) => sqlx::query(
                 "UPDATE jobs SET status = 'completed', locked_until = NULL, lock_token = NULL, \
                  last_error = NULL, updated_at = clock_timestamp() \
-                 WHERE id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
-            ).bind(job.id).bind(job.lock_token).execute(pool).await?.rows_affected(),
+                 WHERE job_id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
+            ).bind(job.job_id).bind(job.lock_token).execute(pool).await?.rows_affected(),
             #[cfg(feature = "mysql")]
             DatabasePool::Mysql(pool) => sqlx::query(
                 "UPDATE jobs SET status = 'completed', locked_until = NULL, lock_token = NULL, \
                  last_error = NULL, updated_at = UTC_TIMESTAMP(6) \
-                 WHERE id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
-            ).bind(job.id.to_string()).bind(job.lock_token.to_string()).execute(pool).await?.rows_affected(),
+                 WHERE job_id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
+            ).bind(job.job_id.to_string()).bind(job.lock_token.to_string()).execute(pool).await?.rows_affected(),
         };
         Ok(affected == 1)
     }
@@ -230,7 +230,7 @@ impl DatabaseQueue {
     /// credentials, message bodies, or recipient addresses.
     pub async fn fail(&self, job: &ReservedJob, reason: &str) -> AppResult<bool> {
         let delay =
-            retry_delay_with_jitter(self.config.retry_base_secs, job.attempts, job.id) as i64;
+            retry_delay_with_jitter(self.config.retry_base_secs, job.attempts, job.job_id) as i64;
         let maximum = i64::from(self.config.max_attempts);
         let reason = safe_failure_reason(reason);
         let affected = match &self.database {
@@ -240,8 +240,8 @@ impl DatabaseQueue {
                  available_at = CASE WHEN attempts >= $3 THEN available_at \
                      ELSE clock_timestamp() + ($4::bigint * INTERVAL '1 second') END, \
                  locked_until = NULL, lock_token = NULL, last_error = $5, updated_at = clock_timestamp() \
-                 WHERE id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
-            ).bind(job.id).bind(job.lock_token).bind(maximum).bind(delay).bind(reason)
+                 WHERE job_id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
+            ).bind(job.job_id).bind(job.lock_token).bind(maximum).bind(delay).bind(reason)
                 .execute(pool).await?.rows_affected(),
             #[cfg(feature = "mysql")]
             DatabasePool::Mysql(pool) => sqlx::query(
@@ -249,9 +249,9 @@ impl DatabaseQueue {
                  available_at = CASE WHEN attempts >= ? THEN available_at \
                      ELSE DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? SECOND) END, \
                  locked_until = NULL, lock_token = NULL, last_error = ?, updated_at = UTC_TIMESTAMP(6) \
-                 WHERE id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
+                 WHERE job_id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
             ).bind(maximum).bind(maximum).bind(delay).bind(reason)
-                .bind(job.id.to_string()).bind(job.lock_token.to_string())
+                .bind(job.job_id.to_string()).bind(job.lock_token.to_string())
                 .execute(pool).await?.rows_affected(),
         };
         Ok(affected == 1)
@@ -264,21 +264,22 @@ impl DatabaseQueue {
             DatabasePool::Postgres(pool) => sqlx::query(
                 "UPDATE jobs SET status = 'failed', locked_until = NULL, lock_token = NULL, \
                  last_error = $3, updated_at = clock_timestamp() \
-                 WHERE id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
-            ).bind(job.id).bind(job.lock_token).bind(reason).execute(pool).await?.rows_affected(),
+                 WHERE job_id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
+            ).bind(job.job_id).bind(job.lock_token).bind(reason).execute(pool).await?.rows_affected(),
             #[cfg(feature = "mysql")]
             DatabasePool::Mysql(pool) => sqlx::query(
                 "UPDATE jobs SET status = 'failed', locked_until = NULL, lock_token = NULL, \
                  last_error = ?, updated_at = UTC_TIMESTAMP(6) \
-                 WHERE id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
-            ).bind(reason).bind(job.id.to_string()).bind(job.lock_token.to_string())
+                 WHERE job_id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
+            ).bind(reason).bind(job.job_id.to_string()).bind(job.lock_token.to_string())
                 .execute(pool).await?.rows_affected(),
         };
         Ok(affected == 1)
     }
 
-    /// Deletes only completed jobs. Deduplication lasts at least until this
-    /// retention interval after completion; failed jobs are never pruned here.
+    /// Deletes at most 1,000 completed jobs in one ordered, locked batch.
+    /// Repeated calls advance by deleting the previous batch, without OFFSET.
+    /// Failed jobs and recent completions remain available for inspection/dedupe.
     pub async fn prune_completed(&self, retention_days: u32) -> AppResult<u64> {
         if !(1..=3_650).contains(&retention_days) {
             return Err(AppError::BadRequest(
@@ -286,27 +287,65 @@ impl DatabaseQueue {
             ));
         }
         let days = i64::from(retention_days);
-        let deleted = match &self.database {
+        match &self.database {
             #[cfg(feature = "postgres")]
-            DatabasePool::Postgres(pool) => sqlx::query(
-                "DELETE FROM jobs WHERE status = 'completed' \
-                 AND updated_at < clock_timestamp() - ($1::bigint * INTERVAL '1 day')",
-            )
-            .bind(days)
-            .execute(pool)
-            .await?
-            .rows_affected(),
+            DatabasePool::Postgres(pool) => {
+                let mut transaction = pool.begin().await?;
+                let job_ids = sqlx::query_scalar::<_, Uuid>(
+                    "SELECT job_id FROM jobs WHERE status = 'completed' \
+                     AND updated_at < statement_timestamp() - ($1::bigint * INTERVAL '1 day') \
+                     ORDER BY updated_at, job_id LIMIT $2 FOR UPDATE SKIP LOCKED",
+                )
+                .bind(days)
+                .bind(PRUNE_BATCH_SIZE)
+                .fetch_all(&mut *transaction)
+                .await?;
+                let deleted = if job_ids.is_empty() {
+                    0
+                } else {
+                    sqlx::query("DELETE FROM jobs WHERE job_id = ANY($1) AND status = 'completed'")
+                        .bind(job_ids)
+                        .execute(&mut *transaction)
+                        .await?
+                        .rows_affected()
+                };
+                transaction.commit().await?;
+                Ok(deleted)
+            }
             #[cfg(feature = "mysql")]
-            DatabasePool::Mysql(pool) => sqlx::query(
-                "DELETE FROM jobs WHERE status = 'completed' \
-                 AND updated_at < DATE_SUB(UTC_TIMESTAMP(6), INTERVAL ? DAY)",
-            )
-            .bind(days)
-            .execute(pool)
-            .await?
-            .rows_affected(),
-        };
-        Ok(deleted)
+            DatabasePool::Mysql(pool) => {
+                let mut transaction = pool.begin().await?;
+                let rows = sqlx::query(
+                    "SELECT job_id FROM jobs WHERE status = 'completed' \
+                     AND updated_at < DATE_SUB(UTC_TIMESTAMP(6), INTERVAL ? DAY) \
+                     ORDER BY updated_at, job_id LIMIT ? FOR UPDATE SKIP LOCKED",
+                )
+                .bind(days)
+                .bind(PRUNE_BATCH_SIZE)
+                .fetch_all(&mut *transaction)
+                .await?;
+                let deleted = if rows.is_empty() {
+                    0
+                } else {
+                    let mut query = sqlx::QueryBuilder::<sqlx::MySql>::new(
+                        "DELETE FROM jobs WHERE status = 'completed' AND job_id IN (",
+                    );
+                    let mut arguments = query.separated(", ");
+                    for row in &rows {
+                        arguments
+                            .push_bind(crate::database::connection::mysql_text(row, "job_id")?);
+                    }
+                    arguments.push_unseparated(")");
+                    query
+                        .build()
+                        .execute(&mut *transaction)
+                        .await?
+                        .rows_affected()
+                };
+                transaction.commit().await?;
+                Ok(deleted)
+            }
+        }
     }
 }
 

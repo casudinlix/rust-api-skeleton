@@ -121,9 +121,11 @@ generator tidak mengalahkan aturan ini.
 
 ## 7. Legacy, generator, dan verifikasi
 
-- Baca [inventaris penyesuaian](docs/system-design-rules.md#9-status-kode-saat-aturan-ditambahkan).
-  PK generik lama, UUIDv4 job, proyeksi list, dan template generator merupakan
-  pekerjaan penyesuaian, bukan contoh yang boleh disalin ke fitur baru.
+- Baca [riwayat dan status penyesuaian](docs/system-design-rules.md#9-status-kode-saat-aturan-ditambahkan)
+  serta [desain contoh saat ini](docs/design/example-rule-alignment.md). Contoh
+  user/queue dan generator memakai PK bernama, pembuatan UUIDv7, proyeksi minimal,
+  dan cursor berkonteks. PK generik dalam migration historis hanya menggambarkan
+  skema sebelum migration rename; jangan menyalinnya ke fitur baru.
 - Jangan diam-diam mengganti kolom, identifier tersimpan, kontrak API/cursor,
   atau payload job. Rancang migration baru dan rollout kompatibilitas terlebih
   dahulu; rename kolom tidak boleh meregenerasi ID. Laporkan ketidaksesuaian yang

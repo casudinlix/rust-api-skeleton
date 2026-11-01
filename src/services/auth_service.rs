@@ -130,7 +130,7 @@ impl AuthService {
         let password_hash = self.hash_password(input.password).await?;
         self.repository
             .create_with_welcome_job(NewUser {
-                id: Uuid::now_v7(),
+                user_id: Uuid::now_v7(),
                 name: input.name,
                 email: input.email,
                 password_hash,
@@ -140,11 +140,14 @@ impl AuthService {
 
     pub async fn login(&self, input: LoginRequest) -> AppResult<TokenResponse> {
         let input = normalize_and_validate(input)?;
-        let user = self.repository.find_by_email(&input.email).await?;
-        let password_hash = user
-            .as_ref()
-            .map(|user| user.password_hash.clone())
-            .unwrap_or_else(|| self.dummy_password_hash.clone());
+        let credentials = self
+            .repository
+            .find_credentials_by_email(&input.email)
+            .await?;
+        let (user, password_hash) = match credentials {
+            Some(credentials) => (Some(credentials.user), credentials.password_hash),
+            None => (None, self.dummy_password_hash.clone()),
+        };
 
         // Missing accounts perform the same Argon2 work as wrong passwords. The
         // account-presence decision happens only after password verification.
@@ -168,15 +171,15 @@ impl AuthService {
         if claims.exp <= now || claims.iat > now || claims.exp <= claims.iat {
             return Err(AppError::Unauthorized);
         }
-        let id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
-        if id.is_nil() {
+        let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
+        if user_id.is_nil() {
             return Err(AppError::Unauthorized);
         }
 
         // Role is deliberately absent from JWTs. Every request reads the current
         // database record, so deletion and role changes take effect immediately.
         self.repository
-            .find_by_id(id)
+            .find_by_id(user_id)
             .await?
             .ok_or(AppError::Unauthorized)
     }
@@ -187,7 +190,7 @@ impl AuthService {
             .checked_add(self.ttl_secs)
             .ok_or_else(|| AppError::Internal(anyhow!("JWT expiration overflow")))?;
         let claims = Claims {
-            sub: user.id.to_string(),
+            sub: user.user_id.to_string(),
             iss: self.issuer.clone(),
             aud: self.audience.clone(),
             iat: now,
@@ -277,7 +280,7 @@ mod tests {
     fn claims_for(user: &User) -> Claims {
         let now = unix_timestamp().unwrap();
         Claims {
-            sub: user.id.to_string(),
+            sub: user.user_id.to_string(),
             iss: jwt_config().issuer,
             aud: jwt_config().audience,
             iat: now - 1,
@@ -335,8 +338,8 @@ mod tests {
         }
         assert_eq!(repository.id_lookups.load(Ordering::Relaxed), 0);
         assert_eq!(
-            auth.authenticate(&sign(&original)).await.unwrap().id,
-            user.id
+            auth.authenticate(&sign(&original)).await.unwrap().user_id,
+            user.user_id
         );
     }
 
@@ -392,20 +395,36 @@ mod tests {
     async fn authentication_reads_current_role_and_rejects_deleted_users() {
         let repository = Arc::new(MemoryUsers::default());
         let user = fixture_user();
-        let id = user.id;
+        let user_id = user.user_id;
         repository.insert(user.clone());
         let token = sign(&claims_for(&user));
         let auth = service(repository.clone());
         assert_eq!(auth.authenticate(&token).await.unwrap().role, "user");
-        repository.set_role(id, "admin");
+        repository.set_role(user_id, "admin");
         assert_eq!(auth.authenticate(&token).await.unwrap().role, "admin");
-        repository.set_role(id, "user");
+        repository.set_role(user_id, "user");
         assert_eq!(auth.authenticate(&token).await.unwrap().role, "user");
-        repository.delete(id).await.unwrap();
+        repository.delete(user_id).await.unwrap();
         assert!(matches!(
             auth.authenticate(&token).await,
             Err(AppError::Unauthorized)
         ));
+    }
+
+    #[tokio::test]
+    async fn existing_legacy_uuid_subjects_keep_their_identity() {
+        let repository = Arc::new(MemoryUsers::default());
+        let mut user = fixture_user();
+        // This models a row retained by the rename migration, not a new write.
+        user.user_id = Uuid::new_v4();
+        let legacy_user_id = user.user_id;
+        let token = sign(&claims_for(&user));
+        repository.insert(user);
+        let auth = service(repository);
+        assert_eq!(
+            auth.authenticate(&token).await.unwrap().user_id,
+            legacy_user_id
+        );
     }
 
     #[tokio::test]
@@ -456,14 +475,15 @@ mod tests {
         assert_eq!(registration.user.name, "Ada");
         assert_eq!(registration.user.email, "ada@example.com");
         assert_eq!(registration.user.role, "user");
+        assert_eq!(registration.user.user_id.get_version_num(), 7);
         assert_eq!(registration.token_type, "Bearer");
         assert_eq!(registration.expires_in, jwt_config().ttl_secs);
         assert_eq!(
             auth.authenticate(&registration.access_token)
                 .await
                 .unwrap()
-                .id,
-            registration.user.id
+                .user_id,
+            registration.user.user_id
         );
         assert_eq!(repository.created_jobs.load(Ordering::Relaxed), 1);
         let login = auth
@@ -473,7 +493,7 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(login.user.id, registration.user.id);
+        assert_eq!(login.user.user_id, registration.user.user_id);
         let created = auth
             .create_user(RegisterRequest {
                 name: "Grace".into(),
@@ -483,16 +503,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(created.role, "user");
+        assert_eq!(created.user_id.get_version_num(), 7);
         assert_eq!(repository.created_jobs.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]
     async fn unknown_accounts_and_wrong_passwords_have_same_public_error() {
         let repository = Arc::new(MemoryUsers::default());
-        let mut user = fixture_user();
-        user.password_hash = DUMMY_PASSWORD_HASH.into();
+        let user = fixture_user();
         let known_email = user.email.clone();
-        repository.insert(user);
+        repository.insert_with_password_hash(user, DUMMY_PASSWORD_HASH.into());
         let auth = service(repository);
         for (email, password) in [
             (known_email, "wrong password"),

@@ -102,6 +102,8 @@ impl Name {
             .to_owned();
         ensure!(module.len() <= 100, "normalized module name is too long");
         let entity = module.to_upper_camel_case();
+        // For models/repositories, NAME supplies the singular entity explicitly.
+        // Do not infer table names: Person and Status remain person and status.
         validate_identifier(&module)?;
         validate_identifier(&entity)?;
         Ok(Self { module, entity })
@@ -155,7 +157,7 @@ fn artifacts(kind: Kind, name: &Name) -> Vec<Artifact> {
         Kind::Model => vec![Artifact::new(
             "src/domain/models",
             module.clone(),
-            templates::model(entity),
+            templates::model(module, entity),
         )],
         Kind::Request => vec![Artifact::new(
             "src/domain/dtos",
@@ -171,7 +173,7 @@ fn artifacts(kind: Kind, name: &Name) -> Vec<Artifact> {
             Artifact::new(
                 "src/repositories",
                 format!("{module}_repository"),
-                templates::repository(entity),
+                templates::repository(module, entity),
             ),
             Artifact::new(
                 "src/repositories/postgres",
@@ -481,6 +483,66 @@ mod tests {
     }
 
     #[test]
+    fn model_and_repository_keys_follow_the_explicit_singular_entity() {
+        let root = fixture();
+        for (entity, module, primary_key) in [
+            ("Customer", "customer", "customer_id"),
+            ("Company", "company", "company_id"),
+            ("User", "user", "user_id"),
+            ("UserRole", "user_role", "user_role_id"),
+            ("Person", "person", "person_id"),
+            ("Status", "status", "status_id"),
+            ("Uuid", "uuid", "uuid_id"),
+        ] {
+            run(root.path(), Kind::Model, &format!("{entity}Model")).unwrap();
+            let source =
+                fs::read_to_string(root.path().join(format!("src/domain/models/{module}.rs")))
+                    .unwrap();
+            let parsed = syn::parse_file(&source).unwrap();
+            let model = parsed
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    syn::Item::Struct(model) => Some(model),
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(model.ident, entity);
+            assert!(model.fields.iter().any(|field| {
+                field.ident.as_ref().is_some_and(|name| name == primary_key)
+                    && matches!(field.vis, syn::Visibility::Public(_))
+            }));
+            assert!(!model.fields.iter().any(|field| {
+                field
+                    .ident
+                    .as_ref()
+                    .is_some_and(|name| name == "id" || name == "uuid" || name == "uid")
+            }));
+
+            let files = run(
+                root.path(),
+                Kind::Repository,
+                &format!("{entity}Repository"),
+            )
+            .unwrap();
+            for (index, path) in files.iter().enumerate() {
+                let source = fs::read_to_string(root.path().join(path)).unwrap();
+                syn::parse_file(&source).unwrap();
+                let argument = if index == 0 {
+                    primary_key.to_owned()
+                } else {
+                    format!("_{primary_key}")
+                };
+                assert!(
+                    source.contains(&format!("async fn exists(&self, {argument}: Uuid)")),
+                    "{} must use the entity's primary-key name",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn duplicate_normalized_names_never_overwrite_generated_or_existing_files() {
         let root = fixture();
         run(root.path(), Kind::Controller, "CustomerController").unwrap();
@@ -632,6 +694,21 @@ mod tests {
                     .all(|line| line.trim().is_empty() || line.starts_with("--"))
             );
             assert!(contents.contains("both"));
+            for requirement in [
+                "docs/design/<feature>.md",
+                "people.person_id, statuses.status_id",
+                "<entity>_id primary key",
+                "Uuid::now_v7()",
+                "CHAR(36) CHARACTER SET ascii COLLATE ascii_bin",
+                "indexes before feature code",
+                "versioned, scoped cursors",
+                "EXPLAIN plans",
+            ] {
+                assert!(
+                    contents.contains(requirement),
+                    "migration scaffold omitted {requirement:?}"
+                );
+            }
         }
     }
 

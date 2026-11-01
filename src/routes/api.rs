@@ -35,7 +35,7 @@ pub fn router(state: AppState) -> anyhow::Result<Router> {
         .route("/me", get(user_handler::me).put(user_handler::update_me))
         .route("/users", get(user_handler::list).post(user_handler::create))
         .route(
-            "/users/{id}",
+            "/users/{user_id}",
             get(user_handler::show)
                 .put(user_handler::update)
                 .delete(user_handler::delete),

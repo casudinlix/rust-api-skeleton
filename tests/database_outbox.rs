@@ -172,14 +172,14 @@ async fn dedupe_and_uuid_are_stable(queue: &OutboxQueue, database: &DatabasePool
     );
     ensure!(queue.published(&publish).await?);
     let job = execution(queue, publish.job_id).await?;
-    ensure!(job.id == publish.job_id && job.attempts == 1);
+    ensure!(job.job_id == publish.job_id && job.attempts == 1);
     ensure!(job.payload == json!({"version": 1}));
     ensure!(queue.ack(&job).await?);
     ensure!(
         !queue.ack(&job).await?,
         "completed job accepted another ACK"
     );
-    ensure!(queue.claim_job(job.id).await?.is_none());
+    ensure!(queue.claim_job(job.job_id).await?.is_none());
     queue
         .enqueue("test_job", json!({"version": 2}), Some("dedupe:test"))
         .await?;
@@ -187,7 +187,7 @@ async fn dedupe_and_uuid_are_stable(queue: &OutboxQueue, database: &DatabasePool
         queue.claim_delivery().await?.is_none(),
         "completion erased deduplication history"
     );
-    let snapshot = state(database, job.id).await?;
+    let snapshot = state(database, job.job_id).await?;
     ensure!(snapshot.status == "completed" && !snapshot.active && !snapshot.relay_owned);
     Ok(())
 }
@@ -238,11 +238,11 @@ async fn relay_and_execution_fences_survive_crashes(
     );
     ensure!(!queue.publish_failed(&replay).await?);
     ensure!(
-        queue.claim_job(old.id).await?.is_none(),
+        queue.claim_job(old.job_id).await?.is_none(),
         "duplicate message obtained an active lease"
     );
 
-    expire_execution(database, old.id).await?;
+    expire_execution(database, old.job_id).await?;
     ensure!(
         !queue.ack(&old).await?,
         "expired execution was acknowledged"
@@ -250,7 +250,11 @@ async fn relay_and_execution_fences_survive_crashes(
     ensure!(!queue.fail(&old, "job_timed_out").await?);
     let recovery = delivery(queue).await?;
     let current = execution(queue, recovery.job_id).await?;
-    ensure!(current.id == old.id && current.lock_token != old.lock_token && current.attempts == 2);
+    ensure!(
+        current.job_id == old.job_id
+            && current.lock_token != old.lock_token
+            && current.attempts == 2
+    );
     ensure!(
         !queue.ack(&old).await?,
         "superseded owner completed the recovered job"
@@ -336,7 +340,7 @@ async fn execution_waits_for_publish_lock(
         .await
         .context("claim did not resume after the publisher released its lock")??
         .context("pending job was skipped after publish contention")?;
-    ensure!(job.id == publish.job_id && job.attempts == 1);
+    ensure!(job.job_id == publish.job_id && job.attempts == 1);
     ensure!(queue.ack(&job).await?);
     Ok(())
 }
@@ -440,27 +444,27 @@ async fn retry_and_poison_jobs_are_bounded(database: &DatabasePool) -> Result<()
             .fail(&first, "smtp://private:secret@example.com")
             .await?
     );
-    let snapshot = state(database, first.id).await?;
+    let snapshot = state(database, first.job_id).await?;
     ensure!(snapshot.status == "pending" && snapshot.delayed && snapshot.unavailable);
     ensure!(
         snapshot.last_error.as_deref() == Some("job_failed"),
         "raw failure text was persisted"
     );
     ensure!(
-        queue.claim_job(first.id).await?.is_none(),
+        queue.claim_job(first.job_id).await?.is_none(),
         "retry skipped its availability deadline"
     );
     ensure!(
         queue.claim_delivery().await?.is_none(),
         "relay skipped retry backoff"
     );
-    make_available(database, first.id).await?;
-    let second = execution(&queue, first.id).await?;
+    make_available(database, first.job_id).await?;
+    let second = execution(&queue, first.job_id).await?;
     ensure!(second.attempts == 2);
     ensure!(queue.fail(&second, "smtp_delivery_failed").await?);
-    let snapshot = state(database, first.id).await?;
+    let snapshot = state(database, first.job_id).await?;
     ensure!(snapshot.status == "failed" && !snapshot.active && !snapshot.relay_owned);
-    ensure!(queue.claim_job(first.id).await?.is_none());
+    ensure!(queue.claim_job(first.job_id).await?.is_none());
     ensure!(queue.claim_delivery().await?.is_none());
 
     queue
@@ -473,7 +477,7 @@ async fn retry_and_poison_jobs_are_bounded(database: &DatabasePool) -> Result<()
             .fail_permanently(&poison, "unsupported_job_kind")
             .await?
     );
-    let snapshot = state(database, poison.id).await?;
+    let snapshot = state(database, poison.job_id).await?;
     ensure!(snapshot.status == "failed" && snapshot.attempts == 1 && !snapshot.active);
     ensure!(snapshot.last_error.as_deref() == Some("unsupported_job_kind"));
     Ok(())
@@ -486,12 +490,12 @@ async fn expired_final_attempt_is_terminal(database: &DatabasePool) -> Result<()
         .await?;
     let publish = delivery(&queue).await?;
     let last = execution(&queue, publish.job_id).await?;
-    expire_execution(database, last.id).await?;
+    expire_execution(database, last.job_id).await?;
     ensure!(
         queue.claim_delivery().await?.is_none(),
         "exhausted job was republished forever"
     );
-    let snapshot = state(database, last.id).await?;
+    let snapshot = state(database, last.job_id).await?;
     ensure!(snapshot.status == "failed" && !snapshot.active);
     ensure!(snapshot.last_error.as_deref() == Some("attempt_limit_reached"));
     ensure!(!queue.ack(&last).await?);
@@ -509,7 +513,7 @@ async fn transaction_helpers_preserve_atomicity(
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(pool) => {
             let mut tx = pool.begin().await?;
-            sqlx::query("INSERT INTO users (id, name, email, password_hash) VALUES ($1, 'Test', $2, 'fixture')")
+            sqlx::query("INSERT INTO users (user_id, name, email, password_hash) VALUES ($1, 'Test', $2, 'fixture')")
                 .bind(user_id).bind(&email).execute(&mut *tx).await?;
             outbox::insert_postgres(
                 &mut tx,
@@ -523,7 +527,7 @@ async fn transaction_helpers_preserve_atomicity(
         #[cfg(feature = "mysql")]
         DatabasePool::Mysql(pool) => {
             let mut tx = pool.begin().await?;
-            sqlx::query("INSERT INTO users (id, name, email, password_hash) VALUES (?, 'Test', ?, 'fixture')")
+            sqlx::query("INSERT INTO users (user_id, name, email, password_hash) VALUES (?, 'Test', ?, 'fixture')")
                 .bind(user_id.to_string()).bind(&email).execute(&mut *tx).await?;
             outbox::insert_mysql(
                 &mut tx,
@@ -551,7 +555,7 @@ async fn transaction_helpers_preserve_atomicity(
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(pool) => {
             let mut tx = pool.begin().await?;
-            sqlx::query("INSERT INTO users (id, name, email, password_hash) VALUES ($1, 'Test', $2, 'fixture')")
+            sqlx::query("INSERT INTO users (user_id, name, email, password_hash) VALUES ($1, 'Test', $2, 'fixture')")
                 .bind(user_id).bind(&email).execute(&mut *tx).await?;
             ensure!(
                 outbox::insert_postgres(
@@ -569,7 +573,7 @@ async fn transaction_helpers_preserve_atomicity(
         #[cfg(feature = "mysql")]
         DatabasePool::Mysql(pool) => {
             let mut tx = pool.begin().await?;
-            sqlx::query("INSERT INTO users (id, name, email, password_hash) VALUES (?, 'Test', ?, 'fixture')")
+            sqlx::query("INSERT INTO users (user_id, name, email, password_hash) VALUES (?, 'Test', ?, 'fixture')")
                 .bind(user_id.to_string()).bind(&email).execute(&mut *tx).await?;
             ensure!(
                 outbox::insert_mysql(
@@ -599,7 +603,7 @@ async fn transaction_helpers_preserve_atomicity(
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(pool) => {
             let mut tx = pool.begin().await?;
-            sqlx::query("INSERT INTO users (id, name, email, password_hash) VALUES ($1, 'Test', $2, 'fixture')")
+            sqlx::query("INSERT INTO users (user_id, name, email, password_hash) VALUES ($1, 'Test', $2, 'fixture')")
                 .bind(user_id).bind(&email).execute(&mut *tx).await?;
             outbox::insert_postgres(
                 &mut tx,
@@ -613,7 +617,7 @@ async fn transaction_helpers_preserve_atomicity(
         #[cfg(feature = "mysql")]
         DatabasePool::Mysql(pool) => {
             let mut tx = pool.begin().await?;
-            sqlx::query("INSERT INTO users (id, name, email, password_hash) VALUES (?, 'Test', ?, 'fixture')")
+            sqlx::query("INSERT INTO users (user_id, name, email, password_hash) VALUES (?, 'Test', ?, 'fixture')")
                 .bind(user_id.to_string()).bind(&email).execute(&mut *tx).await?;
             outbox::insert_mysql(
                 &mut tx,
@@ -804,14 +808,14 @@ async fn user_count(database: &DatabasePool, id: Uuid) -> Result<i64> {
     Ok(match database {
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(pool) => {
-            sqlx::query_scalar("SELECT COUNT(id) AS user_count FROM users WHERE id = $1")
+            sqlx::query_scalar("SELECT COUNT(user_id) AS user_count FROM users WHERE user_id = $1")
                 .bind(id)
                 .fetch_one(pool)
                 .await?
         }
         #[cfg(feature = "mysql")]
         DatabasePool::Mysql(pool) => {
-            sqlx::query_scalar("SELECT COUNT(id) AS user_count FROM users WHERE id = ?")
+            sqlx::query_scalar("SELECT COUNT(user_id) AS user_count FROM users WHERE user_id = ?")
                 .bind(id.to_string())
                 .fetch_one(pool)
                 .await?

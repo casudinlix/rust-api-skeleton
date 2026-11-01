@@ -29,7 +29,7 @@ pub async fn update_me(
 ) -> AppResult<Json<ApiResponse<UserResponse>>> {
     Ok(Json(ApiResponse::success(
         "Profile updated",
-        state.user_service.update(user.id, input).await?,
+        state.user_service.update(user.user_id, input).await?,
     )))
 }
 
@@ -65,10 +65,10 @@ pub async fn show(
     _admin: AdminUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> AppResult<Json<ApiResponse<UserResponse>>> {
-    let id = parse_id(path)?;
+    let user_id = parse_user_id(path)?;
     Ok(Json(ApiResponse::success(
         "User retrieved",
-        state.user_service.get(id).await?,
+        state.user_service.get(user_id).await?,
     )))
 }
 
@@ -78,10 +78,10 @@ pub async fn update(
     path: Result<Path<Uuid>, PathRejection>,
     ValidatedJson(input): ValidatedJson<UpdateUserRequest>,
 ) -> AppResult<Json<ApiResponse<UserResponse>>> {
-    let id = parse_id(path)?;
+    let user_id = parse_user_id(path)?;
     Ok(Json(ApiResponse::success(
         "User updated",
-        state.user_service.update(id, input).await?,
+        state.user_service.update(user_id, input).await?,
     )))
 }
 
@@ -90,20 +90,20 @@ pub async fn delete(
     admin: AdminUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    let id = parse_id(path)?;
-    if id == admin.0.id {
+    let user_id = parse_user_id(path)?;
+    if user_id == admin.0.user_id {
         return Err(AppError::Conflict(
             "An administrator cannot delete their own account".into(),
         ));
     }
-    state.user_service.delete(id).await?;
+    state.user_service.delete(user_id).await?;
     Ok(Json(ApiResponse::success(
         "User deleted",
         json!({"deleted": true}),
     )))
 }
 
-fn parse_id(path: Result<Path<Uuid>, PathRejection>) -> AppResult<Uuid> {
-    path.map(|Path(id)| id)
+fn parse_user_id(path: Result<Path<Uuid>, PathRejection>) -> AppResult<Uuid> {
+    path.map(|Path(user_id)| user_id)
         .map_err(|_| AppError::BadRequest("User ID must be a valid UUID".into()))
 }

@@ -27,7 +27,7 @@ impl Normalize for UpdateUserRequest {
 
 #[derive(Clone, Serialize)]
 pub struct UserResponse {
-    pub id: Uuid,
+    pub user_id: Uuid,
     pub name: String,
     pub email: String,
     pub role: String,
@@ -38,7 +38,7 @@ pub struct UserResponse {
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
         Self {
-            id: user.id,
+            user_id: user.user_id,
             name: user.name,
             email: user.email,
             role: user.role,
@@ -95,15 +95,16 @@ mod tests {
     fn user_output_omits_password_material() {
         let now = Utc::now();
         let user = User {
-            id: Uuid::now_v7(),
+            user_id: Uuid::now_v7(),
             name: "Ada".into(),
             email: "ada@example.com".into(),
-            password_hash: "private-password-hash".into(),
             role: "user".into(),
             created_at: now,
             updated_at: now,
         };
         let encoded = serde_json::to_value(UserResponse::from(user)).unwrap();
+        assert!(encoded.get("user_id").is_some());
+        assert!(encoded.get("id").is_none());
         assert!(encoded.get("password").is_none());
         assert!(encoded.get("password_hash").is_none());
         assert!(!encoded.to_string().contains("private-password-hash"));

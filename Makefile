@@ -56,10 +56,10 @@ help:
 	  'install       Initialize .env/key and build locked dependencies (setup is an alias)' \
 	  'serve         Run API + worker together (SCHEDULER=1 adds scheduler)' \
 	  'controller    Generate JSON handler: NAME=CustomerController' \
-	  'model         Generate domain model: NAME=Customer' \
+	  'model         Generate model with UUIDv7 customer_id: NAME=Customer (singular entity)' \
 	  'request       Generate validated request DTO: NAME=CreateCustomerRequest (alias: dto)' \
 	  'service       Generate service: NAME=CustomerService' \
-	  'repository    Generate trait + PostgreSQL/MySQL adapters: NAME=CustomerRepository' \
+	  'repository    Generate named-PK adapters: NAME=CustomerRepository (singular entity)' \
 	  'job           Generate job payload/handler: NAME=SendInvoiceJob' \
 	  'middleware    Generate middleware: NAME=AuditMiddleware' \
 	  'migration     Generate paired SQL migrations: NAME=create_customers_table' \
@@ -132,10 +132,10 @@ check:
 	$(MAKE) lint test check-drivers
 test-postgres:
 	@test -n "$$TEST_DATABASE_URL" || (printf '%s\n' 'Set TEST_DATABASE_URL to a disposable PostgreSQL database'; exit 1)
-	cargo test --locked --test database_users --test database_api --test database_queue --test database_outbox postgres_ -- --ignored --test-threads=1
+	cargo test --locked --test database_users --test database_api --test database_queue --test database_outbox --test schema_alignment postgres_ -- --ignored --test-threads=1
 test-mysql:
 	@test -n "$$TEST_DATABASE_URL" || (printf '%s\n' 'Set TEST_DATABASE_URL to a disposable MySQL database'; exit 1)
-	cargo test --locked --test database_users --test database_api --test database_queue --test database_outbox mysql_ -- --ignored --test-threads=1
+	cargo test --locked --test database_users --test database_api --test database_queue --test database_outbox --test schema_alignment mysql_ -- --ignored --test-threads=1
 test-redis:
 	@test -n "$$TEST_REDIS_URL" || (printf '%s\n' 'Set TEST_REDIS_URL to a disposable Redis instance'; exit 1)
 	cargo test --locked --test cache_redis -- --ignored --test-threads=1

@@ -46,7 +46,7 @@ enum Command {
     /// Generate a JSON handler and register its module; wire routes explicitly.
     #[command(name = "make:controller")]
     Controller(Name),
-    /// Generate a domain model.
+    /// Generate a UUIDv7 model; NAME is an explicit singular entity (e.g. Person, Status).
     #[command(name = "make:model")]
     Model(Name),
     /// Generate a validated request DTO with normalization.
@@ -55,7 +55,7 @@ enum Command {
     /// Generate a service boundary.
     #[command(name = "make:service")]
     Service(Name),
-    /// Generate a repository trait and PostgreSQL/MySQL adapters.
+    /// Generate a repository and both SQL adapters; NAME uses a singular entity.
     #[command(name = "make:repository")]
     Repository(Name),
     /// Generate a job payload and handler; wire dispatch explicitly.
@@ -64,7 +64,7 @@ enum Command {
     /// Generate a middleware scaffold; implement its policy before attaching it.
     #[command(name = "make:middleware")]
     Middleware(Name),
-    /// Generate matching PostgreSQL/MySQL SQL files; complete both before migrating.
+    /// Generate paired SQL stubs; document table/PK mapping and indexes before implementing both.
     #[command(name = "make:migration")]
     Migration(Name),
     /// Add a crates.io package with Cargo (e.g. serde@1).

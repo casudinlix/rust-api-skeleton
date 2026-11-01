@@ -12,35 +12,36 @@ pub struct UserContact {
     pub email: String,
 }
 
-#[derive(Clone, Serialize)]
+/// Public read projection. Credential material belongs only to `UserCredentials`.
+#[derive(Clone, Debug, Serialize)]
 pub struct User {
-    pub id: Uuid,
+    pub user_id: Uuid,
     pub name: String,
     pub email: String,
-    #[serde(skip_serializing)]
-    pub password_hash: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-impl fmt::Debug for User {
+/// Login-only projection, deliberately not serializable.
+#[derive(Clone)]
+pub struct UserCredentials {
+    pub user: User,
+    pub password_hash: String,
+}
+
+impl fmt::Debug for UserCredentials {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("User")
-            .field("id", &self.id)
-            .field("name", &self.name)
-            .field("email", &self.email)
-            .field("role", &self.role)
-            .field("created_at", &self.created_at)
-            .field("updated_at", &self.updated_at)
+            .debug_struct("UserCredentials")
+            .field("user", &self.user)
             .finish_non_exhaustive()
     }
 }
 
 #[derive(Clone)]
 pub struct NewUser {
-    pub id: Uuid,
+    pub user_id: Uuid,
     pub name: String,
     pub email: String,
     pub password_hash: String,
@@ -50,7 +51,7 @@ impl fmt::Debug for NewUser {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("NewUser")
-            .field("id", &self.id)
+            .field("user_id", &self.user_id)
             .field("name", &self.name)
             .field("email", &self.email)
             .finish_non_exhaustive()
@@ -67,13 +68,13 @@ pub struct UserUpdate {
 #[serde(deny_unknown_fields)]
 pub struct UserCursor {
     pub created_at: DateTime<Utc>,
-    pub id: Uuid,
+    pub user_id: Uuid,
 }
 
 #[derive(Debug)]
 pub struct UserPage {
     pub users: Vec<User>,
-    pub next_cursor: Option<String>,
+    pub next_cursor: Option<UserCursor>,
 }
 
 #[cfg(test)]
@@ -81,27 +82,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn password_hash_is_absent_from_serialization_and_debug() {
+    fn public_projection_has_named_identifier_and_credentials_are_redacted() {
         let user = User {
-            id: Uuid::nil(),
+            user_id: Uuid::now_v7(),
             name: "Example".to_owned(),
             email: "example@example.com".to_owned(),
-            password_hash: "sensitive-password-hash".to_owned(),
             role: "user".to_owned(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
         let serialized = serde_json::to_value(&user).unwrap();
+        assert!(serialized.get("user_id").is_some());
+        assert!(serialized.get("id").is_none());
         assert!(serialized.get("password_hash").is_none());
         let debug = format!("{user:?}");
         assert!(!debug.contains("password_hash"));
         assert!(!debug.contains("sensitive-password-hash"));
 
+        let credentials = UserCredentials {
+            user: user.clone(),
+            password_hash: "sensitive-password-hash".to_owned(),
+        };
+        let debug = format!("{credentials:?}");
+        assert!(!debug.contains("password_hash"));
+        assert!(!debug.contains("sensitive-password-hash"));
+
         let new_user = NewUser {
-            id: user.id,
+            user_id: user.user_id,
             name: user.name,
             email: user.email,
-            password_hash: user.password_hash,
+            password_hash: credentials.password_hash,
         };
         let debug = format!("{new_user:?}");
         assert!(!debug.contains("password_hash"));

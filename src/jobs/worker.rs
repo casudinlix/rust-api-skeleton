@@ -62,14 +62,14 @@ struct JobExecutor {
 impl JobExecutor {
     async fn execute(&self, job: ReservedJob) -> anyhow::Result<()> {
         let started = tokio::time::Instant::now();
-        tracing::info!(job_id = %job.id, attempt = job.attempts, kind = %job.kind, "job execution started");
+        tracing::info!(job_id = %job.job_id, attempt = job.attempts, kind = %job.kind, "job execution started");
         // Cancellation stops acquisition, but a claimed job gets its bounded
         // drain. If this future is dropped, its SQL lease remains recoverable.
         let outcome = tokio::time::timeout(self.timeout, async {
             match job.kind.as_str() {
                 send_welcome_email::KIND => {
                     self.welcome
-                        .handle(self.users.as_ref(), job.id, &job.payload)
+                        .handle(self.users.as_ref(), job.job_id, &job.payload)
                         .await
                 }
                 maintenance::KIND => maintenance::handle(self.queue.as_ref(), &job.payload).await,
@@ -83,7 +83,7 @@ impl JobExecutor {
             Ok(()) => (self.queue.ack(&job).await, "completed"),
             Err(error) => {
                 let permanent = error.permanent();
-                tracing::warn!(job_id = %job.id, attempt = job.attempts, error_code = %error, permanent, "job execution failed");
+                tracing::warn!(job_id = %job.job_id, attempt = job.attempts, error_code = %error, permanent, "job execution failed");
                 (
                     self.queue.fail(&job, &error.to_string(), permanent).await,
                     "failed_or_retry",
@@ -92,13 +92,13 @@ impl JobExecutor {
         };
         match transition {
             Ok(true) => {
-                tracing::info!(job_id = %job.id, status, elapsed_ms = started.elapsed().as_millis() as u64, "job transition committed")
+                tracing::info!(job_id = %job.job_id, status, elapsed_ms = started.elapsed().as_millis() as u64, "job transition committed")
             }
             Ok(false) => {
-                tracing::warn!(job_id = %job.id, "job lease lost; stale completion rejected")
+                tracing::warn!(job_id = %job.job_id, "job lease lost; stale completion rejected")
             }
             Err(_) => {
-                tracing::error!(job_id = %job.id, error_code = "queue_transition_failed", "job remains recoverable after lease expiry");
+                tracing::error!(job_id = %job.job_id, error_code = "queue_transition_failed", "job remains recoverable after lease expiry");
                 anyhow::bail!("queue_transition_failed");
             }
         }

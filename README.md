@@ -13,8 +13,9 @@ outbox SQL untuk menjaga perubahan domain dan pekerjaan tetap konsisten.
 Agent wajib mengikuti [AGENTS.md](AGENTS.md) dan
 [standar desain sistem](docs/system-design-rules.md): clean code, query tanpa N+1,
 kolom SELECT eksplisit, cursor pagination, PK `<entitas>_id` dengan UUIDv7, serta
-desain query/indeks dan migration sebelum implementasi fitur. Dokumen tersebut
-juga mencatat penyesuaian legacy yang masih diperlukan pada kode saat ini.
+desain query/indeks dan migration sebelum implementasi fitur. Contoh user, queue,
+dan generator mengikuti aturan tersebut. Lihat [desain penyesuaian contoh](docs/design/example-rule-alignment.md)
+untuk perubahan skema, kontrak API/cursor, bukti indeks, dan upgrade data lama.
 
 ## Fitur
 
@@ -170,9 +171,9 @@ HEAD dan preflight OPTIONS mengikuti semantik HTTP tanpa response body.
 | PUT | `/api/v1/me` | Bearer | Mengubah nama/email sendiri |
 | GET | `/api/v1/users` | Admin | Daftar user dengan cursor |
 | POST | `/api/v1/users` | Admin | Membuat user tanpa menerbitkan token impersonasi |
-| GET | `/api/v1/users/{id}` | Admin | Detail user |
-| PUT | `/api/v1/users/{id}` | Admin | Mengubah nama/email user |
-| DELETE | `/api/v1/users/{id}` | Admin | Menghapus user; self-delete admin ditolak |
+| GET | `/api/v1/users/{user_id}` | Admin | Detail user |
+| PUT | `/api/v1/users/{user_id}` | Admin | Mengubah nama/email user |
+| DELETE | `/api/v1/users/{user_id}` | Admin | Menghapus user; self-delete admin ditolak |
 
 ### Register dan login
 
@@ -231,9 +232,32 @@ account dihapus atau signing key dirotasi.
 ```
 
 Jika `next_cursor` berisi nilai, kirim nilainya sebagai query `cursor` berikutnya.
-Cursor memakai `(created_at, id)` descending dan tidak bergantung pada offset
-atau total count. Jangan membuat/mengedit cursor sendiri. Cursor tidak mengenkripsi
-timestamp/UUID dan bukan mekanisme otorisasi; endpoint tetap memakai admin guard.
+Cursor memakai `(created_at, user_id)` descending dan tidak bergantung pada offset
+atau total count. Envelope cursor versi 1 terikat resource `users`, sort
+`created_at_desc_user_id_desc`, dan scope `admin:all`; maksimum 512 byte encoded.
+Context, bentuk UUID, dan presisi timestamp divalidasi sebelum repository dipanggil.
+Jangan membuat/mengedit cursor sendiri. Cursor tidak mengenkripsi timestamp/UUID
+dan bukan mekanisme otorisasi; endpoint tetap memakai admin guard.
+
+### Identitas user dan upgrade contoh lama
+
+Semua response user memakai field `user_id`, termasuk register, login, profil,
+detail, dan item list. PK skema akhir adalah `users.user_id`, `jobs.job_id`, dan
+`job_outbox.job_outbox_id`. Semua baris baru dibuat dengan UUIDv7; query publik
+hanya mengambil kolom response, sedangkan `password_hash` hanya dibaca untuk login.
+
+Migration `20261102000000_align_example_primary_keys.sql` tersedia untuk kedua
+driver. File migration historis tetap immutable: jalankan seluruh history dengan
+`make migrate` untuk memperoleh skema akhir. Rename kolom mempertahankan nilai
+UUID lama, referensi job, deduplication key, dan subject JWT. Data historis UUIDv4
+tetap dapat dibaca; ID lama tidak diganti diam-diam menjadi UUIDv7.
+
+Untuk upgrade deployment existing, hentikan API/worker/scheduler/relay, jalankan
+migration, lalu jalankan binary versi baru. Client perlu mengganti pembacaan field
+`id` menjadi `user_id` dan mengulang pagination dari halaman pertama karena cursor
+lama ditolak. Penambahan kolom generated/index jobs memerlukan maintenance window
+yang diukur pada ukuran data Anda. Ikuti [prosedur upgrade](docs/design/example-rule-alignment.md#upgrade-and-rollback-operations)
+untuk urutan rilis, kesiapan schema, dan penanganan DDL MySQL yang terputus.
 
 ### Validasi dan error
 

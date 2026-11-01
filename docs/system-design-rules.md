@@ -6,8 +6,8 @@ cursor pagination, PK bernama sesuai tabel dengan UUIDv7, serta desain indeks
 dan migration sebelum implementasi fitur.
 
 Scope aturan adalah skema milik aplikasi. Metadata seperti `_sqlx_migrations`
-mengikuti kontrak SQLx. Status kode saat aturan ditambahkan dicatat di bagian 9;
-keberadaan dokumen ini tidak berarti seluruh legacy sudah sesuai.
+mengikuti kontrak SQLx. Bagian 9 mencatat baseline saat aturan ditambahkan dan
+penyesuaian contoh existing yang sudah dilakukan, termasuk batas data historis.
 
 ## 1. Alur kerja sebelum membuat fitur
 
@@ -331,21 +331,27 @@ CI GitHub bersifat tambahan; kuota runner bukan pengganti hasil lokal.
 
 ## 9. Status kode saat aturan ditambahkan
 
-Inventaris berdasarkan baseline commit `7ddd63a`:
+Inventaris historis berdasarkan baseline commit `7ddd63a`, dengan status setelah
+migration `20261102000000_align_example_primary_keys.sql`:
 
-| Area | Kondisi baseline | Penyesuaian yang dibutuhkan |
+| Area | Kondisi baseline | Implementasi saat ini |
 |---|---|---|
-| PK schema | Kedua driver memakai `users.id` dan `jobs.id` | Migration baru menuju `user_id`/`job_id`, row mapping, FK/indeks, DTO/cursor, dan kontrak terkait |
-| UUID user baru | `src/services/auth_service.rs` memakai `Uuid::now_v7()` | Pertahankan versi 7 dan cakupan test creation path |
-| UUID job baru | `src/jobs/queue.rs` dan welcome-job insert kedua user repository memakai `Uuid::new_v4()` | Selaraskan factory PK job baru melalui implementasi yang teruji |
+| PK schema | Kedua driver memakai `users.id` dan `jobs.id` | Migration baru mempertahankan semua nilai dan menamai kolom `user_id`/`job_id`; model, adapter, DTO, route parameter, dan SQL diagnosis memakai nama tersebut |
+| UUID user baru | `src/services/auth_service.rs` memakai `Uuid::now_v7()` | Service tetap membuat v7; kedua repository menolak PK baru selain versi 7/variant RFC sebelum membuka transaksi |
+| UUID job baru | Queue dan welcome-job insert memakai `Uuid::new_v4()` | Queue, welcome-job, dan outbox membuat UUIDv7; lease token tetap terpisah |
 | Lease token | Queue memakai token UUIDv4 terpisah | Bukan PK; tetap mengikuti aturan fencing/keamanan |
-| Proyeksi list user | Kolom eksplisit tetapi `password_hash` masih diambil | Pisahkan read DTO/proyeksi list dari entity autentikasi |
-| Pagination user | Keyset `(created_at, id)`, lookahead, limit maksimum 100, dan indeks tersedia | Pertahankan keyset; rencanakan penamaan PK dan versi/konteks cursor ketika kontrak diperluas |
-| Generator | Model memakai `id`; repository stub memakai parameter `id` | Selaraskan generator/output dengan nama entitas/PK sebelum menjadi implementasi fitur |
+| Proyeksi list user | Kolom eksplisit tetapi `password_hash` masih diambil | `User` adalah proyeksi publik; `UserCredentials` hanya untuk login; list/detail/authenticate/write-result tidak mengambil hash |
+| Pagination user | Keyset `(created_at, id)`, lookahead, limit maksimum 100 | Keyset `(created_at, user_id)` dengan indeks, lookahead, batas 100, dan cursor versi 1 terikat resource/sort/scope |
+| Generator | Model/parameter repository memakai `id` | NAME entity singular eksplisit menghasilkan `<entity>_id`, factory `new()`/`Default` UUIDv7, dan parameter repository yang konsisten |
+| Queue claim/retention | Predicate pending/running terpisah dan delete completed tidak dibatasi | Indeks generated `claimable_at` untuk claim; retention memilih maksimal 1.000 PK terurut dan menghapusnya dalam transaksi |
 
-Ini adalah pekerjaan penyesuaian yang diketahui, bukan pengecualian untuk menyalin
-pola lama. Perubahan instruksi ini sendiri tidak melakukan konversi skema, ID,
-atau kontrak aplikasi.
+Lihat [desain dan bukti penyesuaian](design/example-rule-alignment.md) serta
+[catatan verifikasi](verification.md) untuk kandidat query pada 50.000 baris per
+tabel/driver, query budget, pengujian migration/kontrak, dan langkah rollout.
+File migration awal tetap berisi `id` karena checksum history immutable; skema
+hasil **seluruh** migration memakai nama PK yang diwajibkan. Fixture upgrade
+sengaja memakai UUIDv4 dan kolom lama untuk membuktikan preservasi data, bukan
+sebagai contoh creation path baru.
 
 Penyesuaian legacy memakai migration baru dan rollout terencana. Rename kolom
 tidak boleh meregenerasi identifier baris. Jangan mengganti UUID lama diam-diam

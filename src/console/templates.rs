@@ -21,16 +21,35 @@ pub async fn index(_auth: AuthUser) -> AppResult<Json<ApiResponse<Value>>> {
     .replace("__ENTITY__", entity)
 }
 
-pub(super) fn model(entity: &str) -> String {
+pub(super) fn model(module: &str, entity: &str) -> String {
     r#"/// Add domain fields and map database rows in each driver-specific repository.
 /// Expose a separate response DTO so internal fields are not serialized by accident.
+/// Map persisted rows directly; constructing a new entity generates a new identity.
 #[derive(Clone, Debug)]
 pub struct __ENTITY__ {
-    pub id: ::uuid::Uuid,
+    pub __MODULE___id: ::uuid::Uuid,
     pub created_at: ::chrono::DateTime<::chrono::Utc>,
     pub updated_at: ::chrono::DateTime<::chrono::Utc>,
 }
+
+impl __ENTITY__ {
+    pub fn new() -> Self {
+        let now = ::chrono::Utc::now();
+        Self {
+            __MODULE___id: ::uuid::Uuid::now_v7(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+impl ::std::default::Default for __ENTITY__ {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 "#
+    .replace("__MODULE__", module)
     .replace("__ENTITY__", entity)
 }
 
@@ -82,7 +101,7 @@ impl __ENTITY__Service {
     .replace("__ENTITY__", entity)
 }
 
-pub(super) fn repository(entity: &str) -> String {
+pub(super) fn repository(module: &str, entity: &str) -> String {
     r#"use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -90,11 +109,13 @@ use crate::errors::AppResult;
 
 /// Keep SQL and driver-specific types inside the PostgreSQL/MySQL adapters.
 /// Extend this boundary with domain entities and the operations your service needs.
+/// Separate public read projections from credentials; bound batch and cursor reads.
 #[async_trait]
 pub trait __ENTITY__Repository: Send + Sync {
-    async fn exists(&self, id: Uuid) -> AppResult<bool>;
+    async fn exists(&self, __MODULE___id: Uuid) -> AppResult<bool>;
 }
 "#
+    .replace("__MODULE__", module)
     .replace("__ENTITY__", entity)
 }
 
@@ -136,8 +157,9 @@ impl __PREFIX____ENTITY__Repository {
 
 #[async_trait]
 impl __ENTITY__Repository for __PREFIX____ENTITY__Repository {
-    async fn exists(&self, _id: Uuid) -> AppResult<bool> {
+    async fn exists(&self, ___MODULE___id: Uuid) -> AppResult<bool> {
         // Add dialect-specific SQL and bind every user-supplied value.
+        // Name only required columns; design indexes and bounded queries first.
         Err(AppError::Internal(anyhow::anyhow!(
             "Implement the __DRIVER__ __ENTITY__ repository before using it"
         )))
@@ -159,7 +181,8 @@ use crate::errors::{AppError, AppResult};
 
 pub const KIND: &str = "__MODULE__";
 
-/// Replace the example ID with the minimum data needed to load current state.
+/// Replace resource_id with the concrete entity key, such as invoice_id.
+/// Carry only the minimum data needed to load current state.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct __ENTITY__Payload {
@@ -198,6 +221,16 @@ pub(super) fn migration(name: &str, driver: &str, counterpart: &str) -> String {
          -- SCAFFOLD ONLY: write the forward migration SQL below.\n\
          -- Complete both this file and the {counterpart} counterpart before make migrate.\n\
          -- Applying this comment-only stub would record an empty migration.\n\
-         -- Never modify an applied migration; create a new migration instead.\n\n"
+         -- Never modify an applied migration; create a new migration instead.\n\
+         -- Design first: document this feature in docs/design/<feature>.md.\n\
+         -- State each table-to-entity mapping explicitly: people.person_id, statuses.status_id.\n\
+         -- Every application table needs a named <entity>_id primary key, including join tables.\n\
+         -- New primary keys come from the application using Uuid::now_v7().\n\
+         -- PostgreSQL UUID; MySQL CHAR(36) CHARACTER SET ascii COLLATE ascii_bin.\n\
+         -- Preserve stored identifiers when upgrading existing tables.\n\
+         -- Define FK/unique/check constraints and query-specific indexes before feature code.\n\
+         -- Plan explicit minimal column projections, access scope and bounded relation batches.\n\
+         -- Lists use versioned, scoped cursors with immutable sort keys and the PK tie-breaker.\n\
+         -- Record query budgets and verify EXPLAIN plans with representative data on both drivers.\n\n"
     )
 }

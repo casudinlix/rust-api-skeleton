@@ -4,6 +4,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
 };
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rust_api_skeleton::{
     config::Settings, database::DatabasePool, routes::api::router, state::AppState,
 };
@@ -166,7 +167,9 @@ async fn exercise(driver: &str) {
         .as_str()
         .unwrap()
         .to_owned();
-    let user_id = Uuid::parse_str(response["data"]["user"]["id"].as_str().unwrap()).unwrap();
+    let user_id = Uuid::parse_str(response["data"]["user"]["user_id"].as_str().unwrap()).unwrap();
+    assert_eq!(user_id.get_version_num(), 7);
+    assert!(response["data"]["user"].get("id").is_none());
     assert_eq!(response["data"]["user"]["email"], email);
     assert_eq!(response["data"]["user"]["name"], "Ada");
     assert_eq!(response["data"]["user"]["role"], "user");
@@ -248,7 +251,7 @@ async fn exercise(driver: &str) {
     match &database {
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(pool) => {
-            sqlx::query("UPDATE users SET role='admin' WHERE id=$1")
+            sqlx::query("UPDATE users SET role='admin' WHERE user_id=$1")
                 .bind(user_id)
                 .execute(pool)
                 .await
@@ -256,7 +259,7 @@ async fn exercise(driver: &str) {
         }
         #[cfg(feature = "mysql")]
         DatabasePool::Mysql(pool) => {
-            sqlx::query("UPDATE users SET role='admin' WHERE id=?")
+            sqlx::query("UPDATE users SET role='admin' WHERE user_id=?")
                 .bind(user_id.to_string())
                 .execute(pool)
                 .await
@@ -303,7 +306,73 @@ async fn exercise(driver: &str) {
     .await;
     let created = call(&app,"POST","/api/v1/users",Some(&token),Some(json!({"name":"Managed User","email":format!("managed-{user_id}@example.com"),"password":"another-long-test-password"})),StatusCode::CREATED).await;
     assert!(created["data"].get("access_token").is_none());
-    let managed_id = Uuid::parse_str(created["data"]["id"].as_str().unwrap()).unwrap();
+    let managed_id = Uuid::parse_str(created["data"]["user_id"].as_str().unwrap()).unwrap();
+    assert_eq!(managed_id.get_version_num(), 7);
+    assert!(created["data"].get("id").is_none());
+    let page = call(
+        &app,
+        "GET",
+        "/api/v1/users?limit=1",
+        Some(&token),
+        None,
+        StatusCode::OK,
+    )
+    .await;
+    let cursor = page["data"]["next_cursor"].as_str().unwrap();
+    let envelope: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(cursor).unwrap()).unwrap();
+    assert_eq!(envelope["version"], 1);
+    assert_eq!(envelope["resource"], "users");
+    assert_eq!(envelope["scope"], "admin:all");
+    assert_eq!(envelope["sort"], "created_at_desc_user_id_desc");
+    let next_page = call(
+        &app,
+        "GET",
+        &format!("/api/v1/users?limit=1&cursor={cursor}"),
+        Some(&token),
+        None,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(next_page["data"]["items"].as_array().unwrap().len(), 1);
+    assert_ne!(
+        page["data"]["items"][0]["user_id"],
+        next_page["data"]["items"][0]["user_id"]
+    );
+    assert!(next_page["data"]["next_cursor"].is_null());
+    for (field, value) in [
+        ("version", json!(2)),
+        ("resource", json!("jobs")),
+        ("scope", json!("tenant:other")),
+        ("sort", json!("user_id_asc")),
+    ] {
+        let mut invalid = envelope.clone();
+        invalid[field] = value;
+        let cursor = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&invalid).unwrap());
+        call(
+            &app,
+            "GET",
+            &format!("/api/v1/users?cursor={cursor}"),
+            Some(&token),
+            None,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    }
+    let legacy_cursor = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(
+            &json!({"id": user_id, "created_at": response["data"]["items"][0]["created_at"]}),
+        )
+        .unwrap(),
+    );
+    call(
+        &app,
+        "GET",
+        &format!("/api/v1/users?cursor={legacy_cursor}"),
+        Some(&token),
+        None,
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
     let path = format!("/api/v1/users/{managed_id}");
     call(&app, "GET", &path, Some(&token), None, StatusCode::OK).await;
     call(&app,"PUT",&path,Some(&token),Some(json!({"name":"Managed Updated","email":format!("managed-updated-{user_id}@example.com")})),StatusCode::OK).await;
@@ -327,30 +396,60 @@ async fn exercise(driver: &str) {
     )
     .await;
 
-    for id in [user_id, managed_id] {
+    // Revocation is observed by the same JWT; the cursor's admin:all scope is
+    // never allowed to grant an administrative role.
+    match &database {
+        #[cfg(feature = "postgres")]
+        DatabasePool::Postgres(pool) => {
+            sqlx::query("UPDATE users SET role='user' WHERE user_id=$1")
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "mysql")]
+        DatabasePool::Mysql(pool) => {
+            sqlx::query("UPDATE users SET role='user' WHERE user_id=?")
+                .bind(user_id.to_string())
+                .execute(pool)
+                .await
+                .unwrap();
+        }
+    }
+    call(
+        &app,
+        "GET",
+        &format!("/api/v1/users?cursor={cursor}"),
+        Some(&token),
+        None,
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+
+    for target_user_id in [user_id, managed_id] {
         match &database {
             #[cfg(feature = "postgres")]
             DatabasePool::Postgres(pool) => {
-                sqlx::query("DELETE FROM users WHERE id=$1")
-                    .bind(id)
+                sqlx::query("DELETE FROM users WHERE user_id=$1")
+                    .bind(target_user_id)
                     .execute(pool)
                     .await
                     .unwrap();
                 sqlx::query("DELETE FROM jobs WHERE deduplication_key=$1")
-                    .bind(format!("welcome:{id}"))
+                    .bind(format!("welcome:{target_user_id}"))
                     .execute(pool)
                     .await
                     .unwrap();
             }
             #[cfg(feature = "mysql")]
             DatabasePool::Mysql(pool) => {
-                sqlx::query("DELETE FROM users WHERE id=?")
-                    .bind(id.to_string())
+                sqlx::query("DELETE FROM users WHERE user_id=?")
+                    .bind(target_user_id.to_string())
                     .execute(pool)
                     .await
                     .unwrap();
                 sqlx::query("DELETE FROM jobs WHERE deduplication_key=?")
-                    .bind(format!("welcome:{id}"))
+                    .bind(format!("welcome:{target_user_id}"))
                     .execute(pool)
                     .await
                     .unwrap();

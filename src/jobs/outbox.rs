@@ -330,7 +330,7 @@ impl OutboxQueue {
                 tx.commit().await?;
                 connection.committed = true;
                 Ok(Some(ReservedJob {
-                    id: job_id,
+                    job_id,
                     kind,
                     payload: payload.0,
                     attempts,
@@ -393,7 +393,7 @@ impl OutboxQueue {
                 tx.commit().await?;
                 connection.committed = true;
                 Ok(Some(ReservedJob {
-                    id: job_id,
+                    job_id,
                     kind,
                     payload: payload.0,
                     attempts,
@@ -412,7 +412,7 @@ impl OutboxQueue {
                  WHERE job_outbox_id = $1 AND lock_token = $2 AND status = 'running' \
                  AND locked_until > clock_timestamp()",
             )
-            .bind(job.id)
+            .bind(job.job_id)
             .bind(job.lock_token)
             .execute(pool)
             .await?
@@ -424,7 +424,7 @@ impl OutboxQueue {
                  WHERE job_outbox_id = ? AND lock_token = ? AND status = 'running' \
                  AND locked_until > UTC_TIMESTAMP(6)",
             )
-            .bind(job.id.to_string())
+            .bind(job.job_id.to_string())
             .bind(job.lock_token.to_string())
             .execute(pool)
             .await?
@@ -449,7 +449,7 @@ impl OutboxQueue {
     ) -> AppResult<bool> {
         self.lease_seconds()?;
         let delay =
-            retry_delay_with_jitter(self.config.retry_base_secs, job.attempts, job.id) as i64;
+            retry_delay_with_jitter(self.config.retry_base_secs, job.attempts, job.job_id) as i64;
         let maximum = if permanent {
             0
         } else {
@@ -468,7 +468,7 @@ impl OutboxQueue {
                  updated_at = statement_timestamp() WHERE job_outbox_id = $1 AND lock_token = $2 \
                  AND status = 'running' AND locked_until > clock_timestamp()",
             )
-            .bind(job.id)
+            .bind(job.job_id)
             .bind(job.lock_token)
             .bind(maximum)
             .bind(delay)
@@ -493,7 +493,7 @@ impl OutboxQueue {
             .bind(maximum)
             .bind(delay)
             .bind(reason)
-            .bind(job.id.to_string())
+            .bind(job.job_id.to_string())
             .bind(job.lock_token.to_string())
             .execute(pool)
             .await?

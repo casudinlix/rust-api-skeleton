@@ -14,8 +14,10 @@ behavior is documented in README; update this file when an interface changes.
   `password_hash_concurrency: usize`, `auth_requests_per_minute: u32`.
 - JwtConfig: `secret: String`, `issuer: String`, `audience: String`, `ttl_secs: u64`.
 - CorsConfig: `allowed_origins: Vec<String>`.
-- QueueConfig: `poll_interval_ms: u64`, `visibility_timeout_secs: u64`,
-  `job_timeout_secs: u64`, `max_attempts: u32`, `retry_base_secs: u64`.
+- QueueConfig: `driver: QueueDriver` (Database|Redis), `poll_interval_ms: u64`,
+  `visibility_timeout_secs: u64`, `job_timeout_secs: u64`, `max_attempts: u32`,
+  `retry_base_secs: u64`, `concurrency: usize`, `redis: RedisQueueConfig`,
+  `relay_enabled: bool`. Redis queue configuration is independent of cache.
 - SchedulerConfig: `maintenance_cron: String`, `retention_days: u32`.
 - MailConfig: `transport: String` (log|smtp), `from: String`, `smtp_host: String`,
   `smtp_port: u16`, `smtp_username: String`, `smtp_password: String`.
@@ -31,7 +33,7 @@ behavior is documented in README; update this file when an interface changes.
 - `utils::shutdown::shutdown_signal() -> impl Future<Output = ()>`.
 - `state::AppState`: `settings: Arc<Settings>`, `database: DatabasePool`,
   `cache: Arc<Cache>`, `auth_service: Arc<AuthService>`, `user_service: Arc<UserService>`,
-  `queue: Arc<DatabaseQueue>`, plus HTTP auth-rate limiter as needed.
+  `queue: Arc<dyn JobQueue>`, plus HTTP auth-rate limiter as needed.
 
 ## Persistence
 
@@ -44,22 +46,39 @@ behavior is documented in README; update this file when an interface changes.
   `ping(&self) -> AppResult<()>`, `ready(&self) -> AppResult<()>`,
   `migrate(&self) -> anyhow::Result<()>`, `close(&self)`. Readiness validates the
   exact embedded migration history and checksum; it performs no schema writes.
-- `domain::models::user::User` Clone with `id: Uuid`, `name,email,password_hash,role: String`,
-  `created_at,updated_at: DateTime<Utc>`. Password hash is never serialized/debugged.
-- `NewUser` fields id/name/email/password_hash. `UserUpdate` fields name/email.
-- `UserCursor` serializable: `created_at: DateTime<Utc>`, `id: Uuid`.
-- `UserPage` fields `users: Vec<User>`, `next_cursor: Option<String>`.
-- async-trait `UserRepository: Send + Sync`: `find_by_id(id:Uuid)->AppResult<Option<User>>`,
-  `find_by_email(email:&str)->AppResult<Option<User>>`,
+- `domain::models::user::User` is the public projection with `user_id: Uuid`,
+  `name,email,role: String`, `created_at,updated_at: DateTime<Utc>`. It has no
+  password field. `UserCredentials { user: User, password_hash: String }` is
+  login-only, nonserializable, and redacts its credential in Debug.
+- `UserContact` carries only user_id/name/email for welcome delivery.
+- `NewUser` fields user_id/name/email/password_hash. Both adapters reject new
+  IDs unless they have UUID version 7 and the RFC variant, before starting a
+  transaction. Historical UUIDv4 records remain readable/updateable/deletable.
+- `UserUpdate` fields name/email.
+- `UserCursor` is an internal position: `created_at: DateTime<Utc>`, `user_id: Uuid`.
+- `UserPage` fields `users: Vec<User>`, `next_cursor: Option<UserCursor>`.
+- async-trait `UserRepository: Send + Sync`: `find_by_id(user_id:Uuid)->AppResult<Option<User>>`,
+  `find_contact_by_id(user_id:Uuid)->AppResult<Option<UserContact>>`,
+  `find_credentials_by_email(email:&str)->AppResult<Option<UserCredentials>>`,
   `create_with_welcome_job(user:NewUser)->AppResult<User>`,
   `list(cursor:Option<UserCursor>, limit:u32)->AppResult<UserPage>`,
-  `update(id:Uuid, input:UserUpdate)->AppResult<User>`, `delete(id:Uuid)->AppResult<bool>`.
+  `update(user_id:Uuid, input:UserUpdate)->AppResult<User>`, `delete(user_id:Uuid)->AppResult<bool>`.
 - `repositories::user_repository(pool:&DatabasePool) -> Arc<dyn UserRepository>`.
-- Use descending `(created_at,id)` order, limit+1. Encode `UserCursor` JSON as base64url
-  without padding. Service validates limit 1..100 and cursor before repository calls.
-- User migration file names match the user request; jobs schema supplied by the jobs migration.
-- Registration inserts user + jobs row in one transaction. Contract insert fields:
-  `id, kind, payload, deduplication_key` only (other fields have defaults).
+- `user_repository_with_queue(pool, QueueDriver)` selects transactional jobs or outbox insertion.
+- Use descending `(created_at,user_id)` order and limit+1, with one query per
+  repository page independent of page size. Public reads/writes never select the
+  hash; only the login projection does. Authentication adds one live-user lookup
+  per protected HTTP request and never relies on a cached role.
+- Service encodes a base64url JSON envelope without padding: version=1,
+  resource=users, sort=created_at_desc_user_id_desc, scope=admin:all, and position.
+  Decode is bounded to 512 encoded bytes / 384 decoded bytes. Validate context,
+  timestamp microsecond precision/range, UUID shape, and limit 1..100 before SQL.
+  Legacy cursors return 400; clients restart at the first page.
+- Final schema uses users.user_id, jobs.job_id, and job_outbox.job_outbox_id.
+  `20261102000000_align_example_primary_keys.sql` renames old columns without
+  changing stored UUIDs. Historical migrations and checksums stay immutable.
+- Registration inserts user + jobs/outbox row in one transaction. Job insert fields:
+  `job_id` (or `job_outbox_id`), `kind`, `payload`, `deduplication_key` only.
   UUID stored native PG/string MySQL. `kind='send_welcome_email'`,
   `payload={"user_id":"<UUID>"}` via SQLx Json, deduplication_key=`welcome:<uuid>`.
 
@@ -89,7 +108,7 @@ behavior is documented in README; update this file when an interface changes.
 - `domain::dtos::Normalize` trait `fn normalize(&mut self)` for request DTOs.
 - `RegisterRequest` name/email/password; `LoginRequest` email/password;
   `UpdateUserRequest` name/email, with Validate, Deserialize, deny_unknown_fields.
-- `UserResponse` id/name/email/role/created_at/updated_at with Serialize and From<User>.
+- `UserResponse` user_id/name/email/role/created_at/updated_at with Serialize and From<User>.
 - `TokenResponse` access_token/token_type/expires_in/user:UserResponse.
 - `UserListQuery` Deserialize fields `cursor:Option<String>`, `limit:Option<u32>`.
 - `UserListResponse` Serialize fields `items:Vec<UserResponse>`, `next_cursor:Option<String>`.
@@ -99,8 +118,8 @@ behavior is documented in README; update this file when an interface changes.
   `register(RegisterRequest)->AppResult<TokenResponse>`,
   `login(LoginRequest)->AppResult<TokenResponse>`, `authenticate(token:&str)->AppResult<User>`.
 - `UserService::new(repo:Arc<dyn UserRepository>)->Self`;
-  async `get(id:Uuid)->AppResult<UserResponse>`, `list(UserListQuery)->AppResult<UserListResponse>`,
-  `update(id:Uuid,UpdateUserRequest)->AppResult<UserResponse>`, `delete(id:Uuid)->AppResult<()>`.
+  async `get(user_id:Uuid)->AppResult<UserResponse>`, `list(UserListQuery)->AppResult<UserListResponse>`,
+  `update(user_id:Uuid,UpdateUserRequest)->AppResult<UserResponse>`, `delete(user_id:Uuid)->AppResult<()>`.
 - `middleware::auth::AuthUser(pub User)` and `AdminUser(pub User)` implement
   Axum 0.8 FromRequestParts<AppState>, strict single Bearer authorization parsing.
 - HS256 only; reject bad exp, issuer, audience, UUID subject; verify current user/role
@@ -112,32 +131,48 @@ behavior is documented in README; update this file when an interface changes.
 ## Queue and scheduler
 
 - `jobs::DatabaseQueue` Clone. `new(database:DatabasePool, config:QueueConfig)->Self`.
+- `queue_backend(&DatabasePool, &QueueConfig) -> Arc<dyn JobQueue>` selects SQL
+  polling or Redis with a SQL outbox. `JobQueue` provides enqueue, ack,
+  fail(job, reason, permanent), and prune_completed. Acquisition is backend-specific.
 - async `enqueue(kind:&str, payload:serde_json::Value, deduplication_key:Option<&str>)
   ->AppResult<()>`, `claim()->AppResult<Option<ReservedJob>>`,
   `ack(job:&ReservedJob)->AppResult<bool>`, `fail(job:&ReservedJob,reason:&str)->AppResult<bool>`.
-- `ReservedJob` fields public `id:Uuid`, `kind:String`, `payload:Value`,
+- `ReservedJob` fields public `job_id:Uuid`, `kind:String`, `payload:Value`,
   `attempts:u32`, `lock_token:Uuid`.
 - `run_worker(database:DatabasePool, config:QueueConfig, mail:MailConfig,
   cancellation:CancellationToken)->anyhow::Result<()>`.
-- `run_scheduler(queue:Arc<DatabaseQueue>, config:SchedulerConfig,
+- `run_scheduler(queue:Arc<dyn JobQueue>, config:SchedulerConfig,
   cancellation:CancellationToken)->anyhow::Result<()>`.
-- Jobs table fields: id, kind, payload, deduplication_key UNIQUE nullable,
+- Jobs table fields: job_id, kind, payload, deduplication_key UNIQUE nullable,
   status (pending/running/completed/failed), attempts DEFAULT 0, available_at,
   locked_until nullable, lock_token nullable, last_error nullable,
-  created_at, updated_at. All non-insert fields default appropriately.
+  created_at, updated_at, generated claimable_at. Other insert fields have defaults.
+  claimable_at is available_at for pending, locked_until for running, NULL for
+  terminal rows; never assign it in application SQL.
 - Reclaim expired running jobs until max_attempts, then mark failed. DB server UTC clock.
   Claims transaction/SKIP LOCKED; attempts increments per reservation. ACK/fail require
-  matching id AND lock_token AND running status. Retry exponential backoff bounded.
+  matching job_id AND lock_token AND running status AND an unexpired lease. Claim
+  order is claimable_at, created_at, job_id and uses jobs_claimable_idx. Up to 32
+  exhausted candidates can be retired per call. Retry exponential backoff bounded.
 - Welcome handler resolves user by ID and uses explicit log/smtp transport; SMTP via
   lettre TLS. Do not log email address, password, payload or SMTP credentials.
-- Maintenance job deletes completed rows older than retention_days; failed rows remain
-  for inspection. Scheduler dedupe key identifies UTC minute; defaults every 5 minutes.
+- Maintenance deletes at most 1,000 completed rows older than retention_days per
+  call on either backend. It selects ordered keys with SKIP LOCKED then deletes
+  those keys in the same transaction; failed rows remain for inspection. Scheduler
+  dedupe key identifies UTC minute; defaults every 5 minutes.
+- Redis envelopes contain only versioned job_id, mapped to job_outbox_id. SQL
+  remains the source for payload/attempts/outcome; broker metadata IDs follow
+  Apalis conventions. See [queue design](design/redis-queue.md).
 
 ## Verification
 
 Run `make check` for formatting, clippy, unit/HTTP tests, rustdoc examples, and the driver matrix.
 Run `make test-postgres` and `make test-mysql` with TEST_DATABASE_URL pointing to
 isolated disposable databases for changes touching SQL, migrations or queue behavior.
+These targets include schema_alignment, which upgrades historical v4/v7 fixtures
+and verifies unchanged IDs, data, and migration checksums on both engines.
+Run `make test-scaffolds` when changing generators; generated models create named
+UUIDv7 identities through new()/Default and repository parameters match that name.
 Run `make test-redis` with TEST_REDIS_URL for cache-driver changes; use a disposable
 Redis instance and per-test namespaces, never global flush operations.
 See `docs/verification.md` for the actual verification record and its limits.

@@ -119,8 +119,17 @@ async fn validation_returns_422_without_password_values() {
 
 #[tokio::test]
 async fn mass_assignment_is_rejected() {
-    let (status, _, _) = request(app(20), "POST", "/api/v1/auth/register", Some(json!({"name":"User","email":"user@example.com","password":"long-test-password","role":"admin"}))).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for (field, value) in [
+        ("role", json!("admin")),
+        ("id", json!(uuid::Uuid::now_v7())),
+        ("user_id", json!(uuid::Uuid::now_v7())),
+    ] {
+        let mut body =
+            json!({"name":"User","email":"user@example.com","password":"long-test-password"});
+        body[field] = value;
+        let (status, _, _) = request(app(20), "POST", "/api/v1/auth/register", Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
 }
 
 #[tokio::test]
