@@ -93,6 +93,7 @@ fn queue_config(max_attempts: u32) -> QueueConfig {
         job_timeout_secs: 30,
         max_attempts,
         retry_base_secs: 2,
+        ..QueueConfig::default()
     }
 }
 
@@ -102,13 +103,16 @@ async fn exercise_queue(database: &DatabasePool) -> Result<()> {
     concurrent_claims_eventually_reserve_each_job_once(&queue).await?;
     expired_and_superseded_claims_cannot_finish(&queue, database).await?;
     retries_wait_and_stop_at_the_attempt_limit(&queue, database).await?;
+    permanent_failure_is_fenced_and_sanitized(&queue, database).await?;
     final_attempt_expiration_becomes_terminal(database).await?;
     maintenance_keeps_recent_and_failed_jobs(&queue, database).await?;
     Ok(())
 }
 
 async fn next(queue: &DatabaseQueue) -> Result<ReservedJob> {
-    queue.claim().await?.context("expected one available job")
+    let job = queue.claim().await?.context("expected one available job")?;
+    ensure!(job.id.get_version_num() == 7, "new job PK must be UUIDv7");
+    Ok(job)
 }
 
 async fn deduplication_survives_completion(
@@ -392,7 +396,37 @@ async fn maintenance_keeps_recent_and_failed_jobs(
                 .await?
         }
     };
-    ensure!(failed_count == 2, "maintenance deleted failed jobs");
+    ensure!(failed_count == 3, "maintenance deleted failed jobs");
+    Ok(())
+}
+
+async fn permanent_failure_is_fenced_and_sanitized(
+    queue: &DatabaseQueue,
+    database: &DatabasePool,
+) -> Result<()> {
+    queue.enqueue("test_job", json!({}), None).await?;
+    let job = next(queue).await?;
+    let forged = ReservedJob {
+        id: job.id,
+        kind: job.kind.clone(),
+        payload: job.payload.clone(),
+        attempts: job.attempts,
+        lock_token: Uuid::new_v4(),
+    };
+    ensure!(
+        !queue
+            .fail_permanently(&forged, "invalid_job_payload")
+            .await?
+    );
+    ensure!(
+        queue
+            .fail_permanently(&job, "raw-secret-must-not-persist")
+            .await?
+    );
+    let state = job_state(database, job.id).await?;
+    ensure!(state.0 == "failed" && state.1 == 1 && !state.2);
+    ensure!(state.3.as_deref() == Some("job_failed"));
+    ensure!(!queue.ack(&job).await?, "terminal job accepted stale ACK");
     Ok(())
 }
 

@@ -3,13 +3,14 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use uuid::Uuid;
 
 use crate::{
-    domain::models::user::{NewUser, User, UserCursor, UserPage, UserUpdate},
+    domain::models::user::{NewUser, User, UserContact, UserCursor, UserPage, UserUpdate},
     errors::{AppError, AppResult},
 };
 
 #[async_trait]
 pub trait UserRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<User>>;
+    async fn find_contact_by_id(&self, id: Uuid) -> AppResult<Option<UserContact>>;
     async fn find_by_email(&self, email: &str) -> AppResult<Option<User>>;
     async fn create_with_welcome_job(&self, user: NewUser) -> AppResult<User>;
     async fn list(&self, cursor: Option<UserCursor>, limit: u32) -> AppResult<UserPage>;

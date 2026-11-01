@@ -6,25 +6,39 @@ use std::{
 };
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{
-    config::Settings, database::DatabasePool, jobs, routes, schedulers, state::AppState,
+    config::{QueueDriver, Settings},
+    database::DatabasePool,
+    jobs, routes, schedulers,
+    state::AppState,
     utils::shutdown::shutdown_signal,
 };
 
 fn init_tracing(settings: &Settings) -> anyhow::Result<()> {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn,tower_http=info"));
+    // Third-party persistence diagnostics can include raw serialized jobs or
+    // server text. Our queue adapter emits safe categories and application IDs.
+    let safe_targets = tracing_subscriber::filter::filter_fn(|metadata| {
+        !metadata.target().starts_with("apalis_core")
+            && !metadata.target().starts_with("apalis_redis")
+    });
     if settings.app.log_format == "json" {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .json()
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_filter(safe_targets),
+            )
             .try_init()
             .map_err(|_| anyhow::anyhow!("could not initialize JSON tracing"))?;
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer().with_filter(safe_targets))
             .try_init()
             .map_err(|_| anyhow::anyhow!("could not initialize tracing"))?;
     }
@@ -32,7 +46,13 @@ fn init_tracing(settings: &Settings) -> anyhow::Result<()> {
 }
 
 async fn initialize() -> anyhow::Result<(Settings, DatabasePool)> {
-    let settings = Settings::load()?;
+    initialize_with_queue_driver(None).await
+}
+
+async fn initialize_with_queue_driver(
+    driver: Option<QueueDriver>,
+) -> anyhow::Result<(Settings, DatabasePool)> {
+    let settings = Settings::load_with_queue_driver(driver)?;
     init_tracing(&settings)?;
     let database = DatabasePool::connect(&settings.database).await?;
     Ok((settings, database))
@@ -130,7 +150,11 @@ pub async fn run_api() -> anyhow::Result<()> {
 }
 
 pub async fn run_worker() -> anyhow::Result<()> {
-    let (settings, database) = initialize().await?;
+    run_worker_with_driver(None).await
+}
+
+pub async fn run_worker_with_driver(driver: Option<QueueDriver>) -> anyhow::Result<()> {
+    let (settings, database) = initialize_with_queue_driver(driver).await?;
     let cancellation = CancellationToken::new();
     let task = jobs::run_worker(
         database.clone(),
@@ -147,10 +171,23 @@ pub async fn run_worker() -> anyhow::Result<()> {
     .await
 }
 
+pub async fn run_relay() -> anyhow::Result<()> {
+    let (settings, database) = initialize_with_queue_driver(Some(QueueDriver::Redis)).await?;
+    let cancellation = CancellationToken::new();
+    let task = jobs::relay::run_relay(database.clone(), settings.queue, cancellation.clone());
+    run_service(
+        task,
+        &database,
+        cancellation,
+        settings.app.shutdown_timeout_secs,
+    )
+    .await
+}
+
 pub async fn run_scheduler() -> anyhow::Result<()> {
     let (settings, database) = initialize().await?;
     let cancellation = CancellationToken::new();
-    let queue = std::sync::Arc::new(jobs::DatabaseQueue::new(database.clone(), settings.queue));
+    let queue = jobs::queue_backend(&database, &settings.queue);
     let task = schedulers::run_scheduler(queue, settings.scheduler, cancellation.clone());
     run_service(
         task,

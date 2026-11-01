@@ -5,8 +5,9 @@ use sqlx::{MySqlPool, Row, mysql::MySqlRow, types::Json};
 use uuid::Uuid;
 
 use crate::{
+    config::QueueDriver,
     database::connection::mysql_text,
-    domain::models::user::{NewUser, User, UserCursor, UserPage, UserUpdate},
+    domain::models::user::{NewUser, User, UserContact, UserCursor, UserPage, UserUpdate},
     errors::{AppError, AppResult},
     repositories::user_repository::{
         UserRepository, map_user_write_error, normalize_email, page_from_users, page_limit,
@@ -16,11 +17,16 @@ use crate::{
 #[derive(Clone)]
 pub struct MysqlUserRepository {
     pool: MySqlPool,
+    queue_driver: QueueDriver,
 }
 
 impl MysqlUserRepository {
     pub fn new(pool: MySqlPool) -> Self {
-        Self { pool }
+        Self::with_queue_driver(pool, QueueDriver::Database)
+    }
+
+    pub fn with_queue_driver(pool: MySqlPool, queue_driver: QueueDriver) -> Self {
+        Self { pool, queue_driver }
     }
 }
 
@@ -45,6 +51,24 @@ fn user_from_row(row: MySqlRow) -> Result<User, sqlx::Error> {
 
 #[async_trait]
 impl UserRepository for MysqlUserRepository {
+    async fn find_contact_by_id(&self, id: Uuid) -> AppResult<Option<UserContact>> {
+        let row = sqlx::query("SELECT id AS user_id, name, email FROM users WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|row| {
+            let text = mysql_text(&row, "user_id")?;
+            let user_id = Uuid::parse_str(&text)
+                .map_err(|_| anyhow::anyhow!("invalid stored user identifier"))?;
+            Ok(UserContact {
+                user_id,
+                name: mysql_text(&row, "name")?,
+                email: mysql_text(&row, "email")?,
+            })
+        })
+        .transpose()
+    }
+
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
         sqlx::query(
             "SELECT id, name, email, password_hash, role, created_at, updated_at \
@@ -82,13 +106,27 @@ impl UserRepository for MysqlUserRepository {
             .await
             .map_err(map_user_write_error)?;
 
-        sqlx::query("INSERT INTO jobs (id, kind, payload, deduplication_key) VALUES (?, ?, ?, ?)")
-            .bind(Uuid::new_v4().to_string())
+        let payload = json!({ "user_id": input.id });
+        let key = format!("welcome:{}", input.id);
+        if self.queue_driver == QueueDriver::Redis {
+            crate::jobs::outbox::insert_mysql(
+                &mut transaction,
+                "send_welcome_email",
+                &payload,
+                Some(&key),
+            )
+            .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO jobs (id, kind, payload, deduplication_key) VALUES (?, ?, ?, ?)",
+            )
+            .bind(Uuid::now_v7().to_string())
             .bind("send_welcome_email")
-            .bind(Json(json!({ "user_id": input.id })))
-            .bind(format!("welcome:{}", input.id))
+            .bind(Json(payload))
+            .bind(key)
             .execute(&mut *transaction)
             .await?;
+        }
 
         let row = sqlx::query(
             "SELECT id, name, email, password_hash, role, created_at, updated_at \

@@ -11,6 +11,7 @@ x-app: &app
   environment:
     DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
     REDIS_URL: ${DOCKER_REDIS_URL:-}
+    QUEUE_REDIS_URL: ${DOCKER_QUEUE_REDIS_URL:-}
     APP_HOST: 0.0.0.0
   restart: unless-stopped
   read_only: true
@@ -73,6 +74,29 @@ services:
       timeout: 3s
       retries: 20
 
+  # Development queue storage. Unlike the disposable cache, retain queued data.
+  # Configure authentication, network policy and recovery for real deployments.
+  redis-queue:
+    image: redis:8.0
+    profiles: [redis-queue]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    ports: ["127.0.0.1:6380:6379"]
+    volumes: [redis_queue_data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   migrate:
     <<: *app
     profiles: [tools]
@@ -98,6 +122,16 @@ services:
     healthcheck:
       disable: true
 
+  # Optional: set QUEUE_DRIVER=redis and QUEUE_RELAY_ENABLED=false for workers
+  # when managing this relay as an independent process.
+  relay:
+    <<: *app
+    profiles: [relay]
+    command: [relay]
+    healthcheck:
+      disable: true
+
 volumes:
   postgres_data:
   mysql_data:
+  redis_queue_data:

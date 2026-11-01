@@ -60,6 +60,7 @@ Jalankan `make help` untuk daftar singkat.
 | `make serve SCHEDULER=1` | Jalankan API + worker + scheduler |
 | `make run` | Jalankan API saja |
 | `make worker` | Jalankan durable queue worker saja |
+| `make relay` | Jalankan relay outbox terpisah untuk driver Redis |
 | `make scheduler` | Jalankan scheduler saja |
 | `make migrate` | Terapkan migration untuk driver yang dipilih |
 | `make controller NAME=CustomerController` | Buat controller/handler JSON |
@@ -82,6 +83,10 @@ Jalankan `make help` untuk daftar singkat.
 | `make update` | Perbarui seluruh dependency dalam batas manifest |
 | `make fmt` | Format kode Rust |
 | `make check` | Format check, clippy, tests, dan compile kedua mode driver |
+| `make docker-queue` | Jalankan Redis queue development persisten pada port 6380 |
+| `make test-redis-transport` | Uji transport queue dengan `TEST_REDIS_URL` disposable |
+| `make test-queue-postgres` | Uji worker/outbox Redis dengan PostgreSQL dan kedua URL test |
+| `make test-queue-mysql` | Uji worker/outbox Redis dengan MySQL dan kedua URL test |
 | `make test-scaffolds` | Buat semua scaffold pada project sementara dan verifikasi compile |
 | `make build DB_FEATURES=mysql` | Build release dengan driver MySQL saja |
 
@@ -145,20 +150,41 @@ tidak menyediakan file watcher atau hot reload. Jika source berubah, hentikan
 lalu jalankan kembali. Untuk production, gunakan service/container terpisah
 seperti [panduan operasi](operations.md) dan Compose yang sudah tersedia.
 
-Worker tetap menggunakan queue SQL yang durable. Redis yang diaktifkan melalui
-`CACHE_DRIVER=redis` tetap berperan sebagai cache; tidak mengubah backend queue.
+Worker mengikuti `QUEUE_DRIVER=database|redis`. Driver Redis membutuhkan
+`QUEUE_REDIS_URL` dan menjalankan relay outbox di dalam worker secara default;
+`make serve` tetap mengelola API + worker. Untuk memisahkan relay, set
+`QUEUE_RELAY_ENABLED=false`, lalu jalankan `make relay` sebagai proses tersendiri.
+`CACHE_DRIVER=redis` hanya mengatur cache dan tidak memilih backend queue.
+
+Untuk mencoba Redis queue secara lokal:
+
+```bash
+make docker-queue
+# Isi .env: QUEUE_DRIVER=redis dan QUEUE_REDIS_URL=redis://127.0.0.1:6380/0
+make migrate
+make serve
+```
+
+Pergantian driver hanya mengubah job baru. Jalankan
+`QUEUE_DRIVER=database make worker` untuk menguras job SQL lama setelah memilih
+Redis; arah sebaliknya tetap membutuhkan worker Redis + relay sampai outbox aktif
+habis. Lihat [panduan queue](queue.md) sebelum mengganti driver pada project yang
+sudah mempunyai backlog.
 
 ## Alur membuat fitur baru
 
-Contoh berikut menyiapkan berkas untuk fitur customer:
+Tulis desain fitur dan rancang PK/FK, query, cursor, constraint, serta indeks
+terlebih dahulu sesuai [aturan sistem](system-design-rules.md). Contoh berikut
+menyiapkan migration dan berkas untuk fitur customer:
 
 ```bash
+make migration NAME=create_customers_table
+# Lengkapi dan verifikasi migration kedua database sebelum implementasi fitur.
 make model NAME=Customer
 make request NAME=CreateCustomerRequest
 make repository NAME=CustomerRepository
 make service NAME=CustomerService
 make controller NAME=CustomerController
-make migration NAME=create_customers_table
 ```
 
 Generator menambahkan deklarasi modul pada `mod.rs` yang sesuai sambil
@@ -168,16 +194,16 @@ mengembalikan error eksplisit; scaffold bukan CRUD yang sudah selesai.
 
 Lengkapi fitur secara berurutan:
 
-1. Definisikan field model dan payload request. Normalisasikan text sebelum
+1. Lengkapi `docs/design/<nama_fitur>.md`, migration PostgreSQL/MySQL, serta
+   verifikasi indeks dan kandidat query pada data disposable yang representatif.
+2. Definisikan field model dan payload request. Normalisasikan text sebelum
    validasi, tolak field tak dikenal, dan jangan normalisasikan password.
-2. Lengkapi kontrak repository serta query pada **kedua** adapter database.
+3. Lengkapi kontrak repository serta query pada **kedua** adapter database.
    Gunakan bind parameter untuk semua nilai dari pengguna.
-3. Pasang repository/service melalui dependency injection di `AppState` atau
+4. Pasang repository/service melalui dependency injection di `AppState` atau
    komponen bootstrap yang relevan. Service berisi business logic dan policy.
-4. Hubungkan handler dengan service, tetapkan policy akses, lalu daftarkan route
+5. Hubungkan handler dengan service, tetapkan policy akses, lalu daftarkan route
    secara eksplisit di `src/routes/api.rs`.
-5. Isi migration PostgreSQL dan MySQL yang dihasilkan, lalu jalankan migration
-   pada database development yang sesuai.
 6. Jalankan `make check` serta kedua suite database untuk perubahan persistence.
 
 Generator tidak memasang route, dependency injection, atau akses publik secara
@@ -188,8 +214,10 @@ make job NAME=SendInvoiceJob
 ```
 
 Lengkapi handler yang idempotent, versi payload, dan dispatch di
-`src/jobs/worker.rs`. Gunakan transaction ketika job harus atomik dengan perubahan
-domain. Membuat file job belum membuat job tersebut dapat dikonsumsi worker.
+lapisan jobs. Gunakan facade queue untuk dispatch standalone dan transaction
+ketika job harus atomik dengan perubahan domain. Driver Redis mencatat outbox
+pada transaction tersebut; jangan publish Redis sebelum commit. Membuat file job
+belum membuat job tersebut dapat dikonsumsi worker.
 
 Untuk middleware:
 
@@ -254,7 +282,7 @@ eksplisit. Contoh setelah binary selesai dibangun:
 ./target/debug/artisan --root /path/rust-api-skeleton make:service BillingService
 ```
 
-Image production hanya memuat binary runtime API, worker, scheduler, dan migrate.
+Image production hanya memuat binary runtime API, worker, relay, scheduler, dan migrate.
 Artisan adalah alat development; tidak diperlukan oleh service yang sudah
 dideploy.
 

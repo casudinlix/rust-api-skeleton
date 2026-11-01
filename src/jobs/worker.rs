@@ -1,20 +1,25 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use anyhow::ensure;
+use anyhow::{Context, ensure};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    config::{MailConfig, QueueConfig},
+    config::{MailConfig, QueueConfig, QueueDriver},
     database::DatabasePool,
-    repositories,
+    repositories::{self, UserRepository},
 };
 
 use super::{
-    DatabaseQueue, maintenance,
+    DatabaseQueue, JobQueue, ReservedJob, maintenance,
+    outbox::OutboxQueue,
+    queue_backend,
+    redis::RedisTransport,
+    relay,
     send_welcome_email::{self, WelcomeEmailHandler},
 };
 
-/// Only these safe categories may reach queue failure rows and worker logs.
+/// Only safe categories may enter queue records or structured worker logs.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum JobError {
     #[error("invalid_job_payload")]
@@ -35,8 +40,72 @@ pub(crate) enum JobError {
     TimedOut,
 }
 
-/// Runs one job at a time per process; scale with additional worker processes.
-/// Cancellation stops new reservations and drains the current bounded job.
+impl JobError {
+    fn permanent(&self) -> bool {
+        matches!(
+            self,
+            Self::InvalidPayload
+                | Self::UnsupportedKind
+                | Self::InvalidRecipient
+                | Self::MessageBuild
+        )
+    }
+}
+
+struct JobExecutor {
+    queue: Arc<dyn JobQueue>,
+    users: Arc<dyn UserRepository>,
+    welcome: WelcomeEmailHandler,
+    timeout: Duration,
+}
+
+impl JobExecutor {
+    async fn execute(&self, job: ReservedJob) -> anyhow::Result<()> {
+        let started = tokio::time::Instant::now();
+        tracing::info!(job_id = %job.id, attempt = job.attempts, kind = %job.kind, "job execution started");
+        // Cancellation stops acquisition, but a claimed job gets its bounded
+        // drain. If this future is dropped, its SQL lease remains recoverable.
+        let outcome = tokio::time::timeout(self.timeout, async {
+            match job.kind.as_str() {
+                send_welcome_email::KIND => {
+                    self.welcome
+                        .handle(self.users.as_ref(), job.id, &job.payload)
+                        .await
+                }
+                maintenance::KIND => maintenance::handle(self.queue.as_ref(), &job.payload).await,
+                _ => Err(JobError::UnsupportedKind),
+            }
+        })
+        .await
+        .unwrap_or(Err(JobError::TimedOut));
+
+        let (transition, status) = match outcome {
+            Ok(()) => (self.queue.ack(&job).await, "completed"),
+            Err(error) => {
+                let permanent = error.permanent();
+                tracing::warn!(job_id = %job.id, attempt = job.attempts, error_code = %error, permanent, "job execution failed");
+                (
+                    self.queue.fail(&job, &error.to_string(), permanent).await,
+                    "failed_or_retry",
+                )
+            }
+        };
+        match transition {
+            Ok(true) => {
+                tracing::info!(job_id = %job.id, status, elapsed_ms = started.elapsed().as_millis() as u64, "job transition committed")
+            }
+            Ok(false) => {
+                tracing::warn!(job_id = %job.id, "job lease lost; stale completion rejected")
+            }
+            Err(_) => {
+                tracing::error!(job_id = %job.id, error_code = "queue_transition_failed", "job remains recoverable after lease expiry");
+                anyhow::bail!("queue_transition_failed");
+            }
+        }
+        Ok(())
+    }
+}
+
 pub async fn run_worker(
     database: DatabasePool,
     config: QueueConfig,
@@ -44,92 +113,155 @@ pub async fn run_worker(
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
     validate_worker_config(&config)?;
-    let queue = DatabaseQueue::new(database.clone(), config.clone());
-    let repository = repositories::user_repository(&database);
-    let welcome = WelcomeEmailHandler::new(&mail)?;
-    let poll = Duration::from_millis(config.poll_interval_ms);
-    let deadline = Duration::from_secs(config.job_timeout_secs);
-    tracing::info!(concurrency = 1, "queue worker started");
+    let executor = Arc::new(JobExecutor {
+        queue: queue_backend(&database, &config),
+        users: repositories::user_repository(&database),
+        welcome: WelcomeEmailHandler::new(&mail)?,
+        timeout: Duration::from_secs(config.job_timeout_secs),
+    });
+    tracing::info!(driver = %config.driver, concurrency = config.concurrency, "queue worker started");
+    match config.driver {
+        QueueDriver::Database => run_database(database, config, executor, cancellation).await?,
+        QueueDriver::Redis => run_redis(database, config, executor, cancellation).await?,
+    }
+    tracing::info!("queue worker stopped after draining current jobs");
+    Ok(())
+}
 
-    while !cancellation.is_cancelled() {
-        let job = match queue.claim().await {
-            Ok(Some(job)) => job,
-            Ok(None) => {
-                wait_for_poll(poll, &cancellation).await;
-                continue;
+async fn run_database(
+    database: DatabasePool,
+    config: QueueConfig,
+    executor: Arc<JobExecutor>,
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    // JoinSet owns every task: dropping the service aborts its acquisition loops
+    // instead of leaving detached work past the shutdown deadline.
+    let mut workers = JoinSet::new();
+    for _ in 0..config.concurrency {
+        let queue = DatabaseQueue::new(database.clone(), config.clone());
+        let executor = executor.clone();
+        let stopping = cancellation.clone();
+        let poll = Duration::from_millis(config.poll_interval_ms);
+        workers.spawn(async move {
+            while !stopping.is_cancelled() {
+                let claim = tokio::select! {
+                    biased;
+                    _ = stopping.cancelled() => break,
+                    result = queue.claim() => result,
+                };
+                match claim {
+                    Ok(Some(job)) => {
+                        let _ = executor.execute(job).await;
+                    }
+                    Ok(None) => wait_for_poll(poll, &stopping).await,
+                    Err(_) => {
+                        tracing::error!(
+                            error_code = "queue_claim_failed",
+                            "queue claim failed; retrying after poll interval"
+                        );
+                        wait_for_poll(poll, &stopping).await;
+                    }
+                }
             }
+        });
+    }
+    let mut panicked = false;
+    while let Some(result) = workers.join_next().await {
+        if result.is_err() {
+            cancellation.cancel();
+            panicked = true;
+        }
+    }
+    ensure!(!panicked, "database worker task stopped unexpectedly");
+    Ok(())
+}
+
+async fn run_redis(
+    database: DatabasePool,
+    config: QueueConfig,
+    executor: Arc<JobExecutor>,
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    let outbox = OutboxQueue::new(database, config.clone());
+    let poll = Duration::from_millis(config.poll_interval_ms);
+    while !cancellation.is_cancelled() {
+        let connection = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return Ok(()),
+            result = RedisTransport::connect(&config.redis) => result,
+        };
+        let transport = match connection {
+            Ok(transport) => transport,
             Err(_) => {
                 tracing::error!(
-                    error_code = "queue_claim_failed",
-                    "queue claim failed; retrying after poll interval"
+                    error_code = "redis_queue_unavailable",
+                    "Redis queue unavailable; outbox remains durable"
                 );
                 wait_for_poll(poll, &cancellation).await;
                 continue;
             }
         };
-        // Do not race the handler against cancellation: once claimed, it drains
-        // until completion or its own timeout, which is shorter than the lease.
-        let result = tokio::time::timeout(deadline, async {
-            match job.kind.as_str() {
-                send_welcome_email::KIND => {
-                    welcome
-                        .handle(repository.as_ref(), job.id, &job.payload)
-                        .await
+        let child = cancellation.child_token();
+        let consumer = transport.run(child.clone(), config.concurrency, {
+            let outbox = outbox.clone();
+            let executor = executor.clone();
+            move |job_id| {
+                let outbox = outbox.clone();
+                let executor = executor.clone();
+                async move {
+                    match outbox.claim_job(job_id).await {
+                        Ok(Some(job)) => executor.execute(job).await,
+                        // Duplicate, early, terminal or currently owned delivery:
+                        // ACK transport only. The durable ledger retains recovery.
+                        Ok(None) => Ok(()),
+                        Err(_) => anyhow::bail!("outbox_claim_failed"),
+                    }
                 }
-                maintenance::KIND => maintenance::handle(&queue, &job.payload).await,
-                _ => Err(JobError::UnsupportedKind),
             }
-        })
-        .await
-        .unwrap_or(Err(JobError::TimedOut));
-
-        let transition = match result {
-            Ok(()) => queue.ack(&job).await,
-            Err(error) => {
-                tracing::warn!(job_id = %job.id, attempt = job.attempts, error_code = %error, "job attempt failed");
-                queue.fail(&job, &error.to_string()).await
+        });
+        let relay = async {
+            if config.relay_enabled {
+                relay::run_with_transport(&outbox, &transport, &config, child.clone()).await
+            } else {
+                child.cancelled().await;
+                Ok(())
             }
         };
-        match transition {
-            Ok(true) => {
-                tracing::debug!(job_id = %job.id, attempt = job.attempts, "job transition committed")
-            }
-            Ok(false) => {
-                tracing::warn!(job_id = %job.id, attempt = job.attempts, "job lease was lost; stale transition rejected")
-            }
-            Err(_) => {
-                tracing::error!(job_id = %job.id, error_code = "queue_transition_failed", "job transition failed; lease recovery will handle the reservation")
-            }
+        tokio::pin!(consumer, relay);
+        let result = tokio::select! {
+            result = &mut consumer => {
+                child.cancel();
+                let _ = relay.await;
+                result.map_err(|_| anyhow::anyhow!("redis_queue_consumer_failed"))
+            },
+            result = &mut relay => {
+                child.cancel();
+                let _ = consumer.await;
+                result.context("redis outbox relay stopped")
+            },
+        };
+        if !cancellation.is_cancelled() {
+            tracing::error!(
+                error_code = "redis_queue_restarting",
+                failed = result.is_err(),
+                "Redis queue session stopped; reconnecting"
+            );
+            wait_for_poll(poll, &cancellation).await;
         }
     }
-    tracing::info!("queue worker stopped after draining current job");
     Ok(())
 }
 
-async fn wait_for_poll(duration: Duration, cancellation: &CancellationToken) {
+pub(super) async fn wait_for_poll(poll: Duration, cancellation: &CancellationToken) {
     tokio::select! {
         biased;
         _ = cancellation.cancelled() => {},
-        _ = tokio::time::sleep(duration) => {},
+        _ = tokio::time::sleep(poll) => {},
     }
 }
 
 fn validate_worker_config(config: &QueueConfig) -> anyhow::Result<()> {
-    ensure!(
-        config.poll_interval_ms > 0,
-        "worker poll interval must be positive"
-    );
-    ensure!(config.max_attempts > 0, "worker attempts must be positive");
-    ensure!(
-        config.job_timeout_secs > 0 && config.job_timeout_secs < config.visibility_timeout_secs,
-        "job timeout must be positive and strictly shorter than the lease"
-    );
-    ensure!(
-        config.visibility_timeout_secs <= 3_600,
-        "worker lease must be at most one hour"
-    );
-    ensure!(config.retry_base_secs > 0, "retry delay must be positive");
-    Ok(())
+    config.validate()
 }
 
 #[cfg(test)]
@@ -140,14 +272,20 @@ mod tests {
     fn worker_rejects_a_deadline_that_can_outlive_its_lease() {
         for timeout in [0, 60, 61] {
             let config = QueueConfig {
-                poll_interval_ms: 100,
                 visibility_timeout_secs: 60,
                 job_timeout_secs: timeout,
-                max_attempts: 3,
-                retry_base_secs: 2,
+                ..QueueConfig::default()
             };
             assert!(validate_worker_config(&config).is_err());
         }
+    }
+
+    #[test]
+    fn permanent_payload_errors_do_not_consume_all_retries() {
+        assert!(JobError::InvalidPayload.permanent());
+        assert!(JobError::UnsupportedKind.permanent());
+        assert!(!JobError::SmtpDelivery.permanent());
+        assert!(!JobError::UserLookup.permanent());
     }
 
     #[tokio::test]

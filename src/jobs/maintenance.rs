@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{DatabaseQueue, worker::JobError};
+use super::{JobQueue, worker::JobError};
 
 pub const KIND: &str = "maintenance";
 
@@ -11,7 +11,7 @@ pub struct MaintenancePayload {
     pub retention_days: u32,
 }
 
-pub(crate) async fn handle(queue: &DatabaseQueue, payload: &Value) -> Result<(), JobError> {
+pub(crate) async fn handle(queue: &dyn JobQueue, payload: &Value) -> Result<(), JobError> {
     let payload: MaintenancePayload =
         serde_json::from_value(payload.clone()).map_err(|_| JobError::InvalidPayload)?;
     if !(1..=3_650).contains(&payload.retention_days) {

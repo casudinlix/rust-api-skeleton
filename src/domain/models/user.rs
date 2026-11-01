@@ -4,6 +4,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Minimal read projection for delivery handlers, without authentication data.
+#[derive(Clone)]
+pub struct UserContact {
+    pub user_id: Uuid,
+    pub name: String,
+    pub email: String,
+}
+
 #[derive(Clone, Serialize)]
 pub struct User {
     pub id: Uuid,

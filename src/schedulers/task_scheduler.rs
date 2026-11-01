@@ -10,13 +10,13 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
     config::SchedulerConfig,
-    jobs::{DatabaseQueue, maintenance},
+    jobs::{JobQueue, maintenance},
 };
 
 use super::deduplication::maintenance_deduplication_key;
 
 pub async fn run_scheduler(
-    queue: Arc<DatabaseQueue>,
+    queue: Arc<dyn JobQueue>,
     config: SchedulerConfig,
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {

@@ -14,6 +14,8 @@ mysql = ["sqlx/mysql"]
 
 [dependencies]
 anyhow = "1"
+apalis = { version = "=1.0.0", default-features = false, features = ["limit"] }
+apalis-redis = { version = "=1.0.0" }
 argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
@@ -49,6 +51,10 @@ nix = { version = "0.31", features = ["signal", "process"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
+
+[patch.crates-io]
+# Two bounded-Redis-operation fixes; source and removal criteria in PATCHES.md.
+apalis-redis = { path = "vendor/apalis-redis" }
 
 [profile.release]
 lto = "thin"

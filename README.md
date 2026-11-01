@@ -4,8 +4,9 @@ Skeleton backend **API-only** dengan pola Laravel: controller/handler tipis,
 service untuk business logic, repository untuk akses data, middleware, job queue,
 dan task scheduler. PostgreSQL dan MySQL didukung oleh satu codebase melalui SQLx.
 
-API, worker, dan scheduler berjalan sebagai proses terpisah. Queue disimpan dalam
-database yang sama, sehingga job tetap tersedia setelah proses restart.
+API, worker, dan scheduler berjalan sebagai proses terpisah. Driver queue default
+menyimpan job dalam database. Driver Redis memakai Apalis dengan transactional
+outbox SQL untuk menjaga perubahan domain dan pekerjaan tetap konsisten.
 
 ## Aturan agent dan desain sistem
 
@@ -20,6 +21,8 @@ juga mencatat penyesuaian legacy yang masih diperlukan pada kode saat ini.
 - Axum 0.8, Tokio, SQLx 0.8.6, Rust 2024 edition.
 - PostgreSQL dan MySQL: default build memuat kedua driver; bisa build satu driver.
 - Cache Redis opsional: JSON, TTL, namespace, timeout, dan helper `remember`.
+- Queue database/Redis yang dapat dipilih secara independen dari cache; Apalis
+  Redis, outbox SQL, relay terkelola/terpisah, dan concurrency worker terbatas.
 - Command bergaya Laravel melalui `make` dan binary Rust `artisan`: install,
   server + worker, generator modul, migration, key, dan dependency management.
 - Register/login JWT HS256, Argon2id, current-user guard, admin guard.
@@ -90,12 +93,13 @@ Untuk terminal atau process manager terpisah, shortcut lama tetap tersedia:
 ```bash
 make run
 make worker
+make relay # Opsional: relay terpisah untuk QUEUE_DRIVER=redis
 make scheduler
 ```
 
 `cargo run --locked` secara default menjalankan `api`. `src/main.rs` tetap tersedia
-sebagai entrypoint kompatibilitas `rust-api-skeleton`; API, worker, scheduler, dan
-migrate menggunakan bootstrap library yang sama. `make serve` tidak melakukan
+sebagai entrypoint kompatibilitas `rust-api-skeleton`; API, worker, relay,
+scheduler, dan migrate menggunakan bootstrap library yang sama. `make serve` tidak melakukan
 reload otomatis saat
 kode berubah; hentikan lalu jalankan ulang setelah mengedit kode. Untuk deployment,
 jalankan API/worker/scheduler sebagai service terpisah seperti contoh Docker.
@@ -105,7 +109,7 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail http://127.0.0.1:3000/ready
 ```
 
-Migration tidak berjalan otomatis ketika API/worker/scheduler boot. Jalankan
+Migration tidak berjalan otomatis ketika API/worker/relay/scheduler boot. Jalankan
 `migrate` sebagai langkah deployment sebelum menjalankan atau mengganti service.
 Binary `migrate` hanya menerapkan migration maju; tidak menyediakan reset database
 atau rollback destruktif otomatis.
@@ -253,19 +257,21 @@ tidak pernah menjadi bagian response atau validation metadata.
 
 ## 4. Queue, worker, dan scheduler
 
-Registrasi memakai satu SQL transaction untuk `users` dan `jobs`. Apabila salah
-satu INSERT gagal, keduanya dibatalkan. API tidak mengirim email secara sinkron.
+`QUEUE_DRIVER=database` adalah default. Registrasi memakai satu SQL transaction
+untuk `users` dan `jobs`. Dengan `QUEUE_DRIVER=redis`, transaksi menyimpan `users`
+dan `job_outbox`; relay menerbitkan ID job ke Apalis Redis setelah commit. Apabila
+salah satu INSERT gagal, keduanya dibatalkan. API tidak mengirim email secara sinkron.
 
-Worker mengambil job memakai transaction dan `FOR UPDATE SKIP LOCKED`, lalu
+Worker database mengambil job memakai transaction dan `FOR UPDATE SKIP LOCKED`, lalu
 melakukan pekerjaan di luar transaction tersebut. Setiap pengambilan menaikkan
 attempt dan membuat token lease baru. ACK/retry hanya diterima jika token cocok
 dan lease belum expired. Job yang ditinggalkan proses crash dapat diambil ulang;
 attempt terakhir yang expired dipindah ke status `failed`.
 
-- Satu worker process mengeksekusi satu job pada satu waktu. Skalakan dengan
-  beberapa proses/container worker; tidak ada queue in-memory lintas proses.
+- Default satu job aktif per proses. `QUEUE_CONCURRENCY=1..64` membatasi
+  concurrency; sesuaikan dengan pool database dan kapasitas provider.
 - Default job timeout 30 detik, lease 90 detik, maksimum 5 attempts, polling 1 detik.
-- Retry menggunakan exponential backoff dengan batas maksimum satu jam.
+- Retry menggunakan exponential backoff dengan jitter dan batas maksimum satu jam.
 - Delivery bersifat **at least once**. Job handler perlu idempotent; keberhasilan
   SMTP yang diikuti crash sebelum ACK tetap bisa menyebabkan email terkirim ulang.
 - SIGTERM/SIGINT menghentikan pengambilan baru dan memberi kesempatan job aktif
@@ -290,11 +296,34 @@ catch-up memerlukan pencatatan occurrence tersendiri.
 Lihat [Panduan operasi](docs/operations.md) untuk status queue, retry manual,
 TLS database, reverse proxy, dan deployment.
 
-**Apakah worker bisa memakai Redis?** Bisa, sebagai cache di handler atau sebagai
-backend queue yang diimplementasikan tersendiri. Worker bawaan saat ini tetap
-memakai `DatabaseQueue`. `CACHE_DRIVER=redis` mengaktifkan fasilitas cache dan
-tidak memindahkan job ke Redis. Rancangan queue Redis yang mempertahankan transaksi
-user + job dijelaskan dalam [panduan cache dan Redis worker](docs/cache.md#redis-untuk-worker).
+### Mengaktifkan worker Redis
+
+```dotenv
+QUEUE_DRIVER=redis
+QUEUE_REDIS_URL=redis://127.0.0.1:6380/0
+QUEUE_REDIS_PREFIX=my-project:local:queue:v1
+QUEUE_REDIS_TIMEOUT_MS=2000
+QUEUE_CONCURRENCY=1
+QUEUE_RELAY_ENABLED=true
+```
+
+```bash
+make docker-queue
+make migrate
+make serve
+```
+
+Relay berjalan bersama worker Redis secara default. Untuk service relay terpisah,
+set `QUEUE_RELAY_ENABLED=false` pada worker dan jalankan `make relay`. Redis
+mendistribusikan delivery; SQL tetap menyimpan payload, lease, retry, dan hasil.
+ID aplikasi pada outbox adalah UUIDv7; ID internal Apalis merupakan metadata
+transport. Recovery/publish ulang tidak mengubah ID aplikasi.
+
+`CACHE_DRIVER=redis` dan `QUEUE_DRIVER=redis` tidak saling mengaktifkan. Compose
+menyediakan Redis queue persisten di port 6380 terpisah dari cache disposable
+di port 6379. Mengganti driver hanya mengubah tujuan job baru: tetap jalankan
+worker backend lama sampai backlog aktifnya habis. Lihat [panduan queue](docs/queue.md)
+untuk peralihan driver, konfigurasi, outbox, recovery, dan pengujian.
 
 ## 5. Struktur kode dan cara menambah modul
 
@@ -313,23 +342,24 @@ user + job dijelaskan dalam [panduan cache dan Redis worker](docs/cache.md#redis
 | Scheduler | `src/schedulers/task_scheduler.rs` | UTC cron mengantrekan job |
 | Bootstrap/state | `src/bootstrap.rs`, `src/state.rs` | Dependency wiring dan process lifecycle |
 | Developer tools | `src/console/` | Bootstrap project, generator, dependency commands, supervisor |
-| Executables | `src/bin/` | `api`, `worker`, `scheduler`, `migrate`, `artisan` |
+| Executables | `src/bin/` | `api`, `worker`, `relay`, `scheduler`, `migrate`, `artisan` |
 
-Untuk modul baru: buat model/DTO dan service, definisikan trait repository,
-implementasikan kedua dialect, kemudian daftarkan handler/route. Buat migration
-dengan versi yang sama di kedua direktori database. Jangan mengedit migration
+Untuk modul baru, lengkapi `docs/design/<nama_fitur>.md` serta rancangan query,
+PK/FK, constraint, dan indeks terlebih dahulu. Buat dan verifikasi migration kedua
+database sebelum model/repository/service/handler fitur. Jangan mengedit migration
 yang sudah diterapkan; SQLx memeriksa checksum. Integration tests harus menguji
 query sebenarnya pada PostgreSQL dan MySQL.
 
 Generator menyediakan titik awal untuk langkah-langkah tersebut:
 
 ```bash
-make controller NAME=CustomerController
+make migration NAME=create_customers_table
+# Isi dan verifikasi SQL kedua driver sebelum implementasi fitur.
 make model NAME=Customer
 make request NAME=CreateCustomerRequest
-make service NAME=CustomerService
 make repository NAME=CustomerRepository
-make migration NAME=create_customers_table
+make service NAME=CustomerService
+make controller NAME=CustomerController
 ```
 
 Modul Rust didaftarkan otomatis. Business logic, dependency injection, policy,
@@ -337,10 +367,10 @@ route, dan SQL tetap Anda lengkapi secara eksplisit. Generator menolak file/modu
 yang sudah ada; lihat [panduan development](docs/development.md) untuk detail.
 
 Untuk job baru: tetapkan `kind` dan payload ber-versi yang tidak menyimpan secret,
-buat handler idempotent, lalu daftarkan dispatch di `src/jobs/worker.rs`. Gunakan
-`DatabaseQueue::enqueue` dengan deduplication key bila perlu. Apabila job merupakan
+buat handler idempotent, lalu daftarkan dispatch pada lapisan jobs. Gunakan facade
+queue dari `AppState` agar driver terpilih tetap dihormati. Apabila job merupakan
 bagian atomik dari perubahan domain, masukkan keduanya dalam transaction seperti
-contoh registrasi user.
+contoh registrasi user; jangan melakukan commit domain lalu enqueue terpisah.
 
 ## 6. Docker
 
@@ -356,11 +386,17 @@ docker compose logs -f api worker scheduler
 Untuk MySQL, ubah setting driver/URL dan gunakan `make docker-db DB_DRIVER=mysql`.
 Build image khusus satu driver dengan `make docker-build DB_FEATURES=mysql`.
 
+Untuk queue Redis, set `QUEUE_DRIVER=redis` dan
+`DOCKER_QUEUE_REDIS_URL=redis://redis-queue:6379/0`, lalu jalankan
+`make docker-queue` sebelum worker. Relay sudah termasuk worker secara default.
+Jika relay dikelola terpisah, set `QUEUE_RELAY_ENABLED=false` dan jalankan
+`docker compose --profile relay up -d relay`.
+
 Image multi-stage menjalankan binary sebagai UID/GID 10001. Compose app services
 memakai filesystem read-only, `/tmp` sementara, drop capabilities, dan
 `no-new-privileges`. Port API dan database development hanya di-publish ke loopback.
 Default image healthcheck berlaku untuk API; Compose menonaktifkannya pada worker,
-scheduler, dan migration.
+scheduler, relay, dan migration.
 
 Container aplikasi boleh memakai database eksternal: isi `DOCKER_DATABASE_URL`
 dengan host yang dapat dijangkau container, lalu cukup jalankan migration dan
@@ -390,12 +426,18 @@ memiliki izin membuat/menghapus database untuk isolasi queue tests:
 TEST_DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/rust_api_test' make test-postgres
 TEST_DATABASE_URL='mysql://root:password@127.0.0.1:3306/rust_api_test' make test-mysql
 TEST_REDIS_URL='redis://127.0.0.1:6379/0' make test-redis
+TEST_REDIS_URL='redis://127.0.0.1:6380/0' make test-redis-transport
+TEST_DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/postgres' \
+  TEST_REDIS_URL='redis://127.0.0.1:6380/0' make test-queue-postgres
+TEST_DATABASE_URL='mysql://root:password@127.0.0.1:3306/mysql' \
+  TEST_REDIS_URL='redis://127.0.0.1:6380/0' make test-queue-mysql
 ```
 
 Suite menguji migration, UTC, CRUD, duplicate race, transaction rollback,
 pagination dengan timestamp yang sama, HTTP auth/role, multi-worker claims,
-expired leases, stale ACK/retry, retry exhaustion, dan deduplikasi. Akun produksi
-tidak memerlukan privilege membuat database untuk menjalankan aplikasi.
+expired leases, stale ACK/retry, retry exhaustion, serta outbox/transport Redis.
+Hasil live test dicatat pada dokumen verifikasi; ignored bukan lulus. Akun
+produksi tidak memerlukan privilege membuat database untuk menjalankan aplikasi.
 
 Redis tests memakai namespace acak dan menghapus key miliknya sendiri, tanpa
 `FLUSHDB`/`FLUSHALL`. Gunakan endpoint plaintext `redis://` pada instance disposable;
@@ -448,3 +490,5 @@ batas konfigurasi, dan perbedaan cache dengan queue Redis.
 - [MySQL locking reads](https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html)
 - [tokio-cron-scheduler](https://docs.rs/tokio-cron-scheduler/0.15.1/tokio_cron_scheduler/)
 - [redis-rs](https://docs.rs/redis/1.8.1/redis/)
+- [Apalis](https://docs.rs/apalis/latest/apalis/)
+- [Apalis Redis](https://docs.rs/apalis-redis/latest/apalis_redis/)

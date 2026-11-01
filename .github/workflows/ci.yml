@@ -77,3 +77,17 @@ jobs:
         env:
           TEST_REDIS_URL: redis://127.0.0.1:6379/0
         run: make test-redis
+      - name: Redis queue transport
+        env:
+          TEST_REDIS_URL: redis://127.0.0.1:6379/0
+        run: make test-redis-transport
+      - name: Redis queue with PostgreSQL
+        env:
+          TEST_DATABASE_URL: postgres://postgres:test-only@127.0.0.1:5432/rust_api_test
+          TEST_REDIS_URL: redis://127.0.0.1:6379/0
+        run: make test-queue-postgres
+      - name: Redis queue with MySQL
+        env:
+          TEST_DATABASE_URL: mysql://root:test-only@127.0.0.1:3306/rust_api_test
+          TEST_REDIS_URL: redis://127.0.0.1:6379/0
+        run: make test-queue-mysql

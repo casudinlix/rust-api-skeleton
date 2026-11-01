@@ -39,7 +39,7 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
     ] {
         fs::copy(original.join(filename), root.join(filename)).unwrap();
     }
-    for directory in ["src", "migrations"] {
+    for directory in ["src", "migrations", "vendor"] {
         copy_directory(&original.join(directory), &root.join(directory));
     }
     let route = fs::read(root.join("src/routes/api.rs")).unwrap();

@@ -298,34 +298,44 @@ async fn assert_utc_sessions(database: &DatabasePool) {
 
 async fn assert_welcome_job(database: &DatabasePool, id: Uuid) {
     let deduplication_key = format!("welcome:{id}");
-    let (kind, payload, status): (String, Json<Value>, String) = match database {
+    let (job_id, kind, payload, status): (Uuid, String, Json<Value>, String) = match database {
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(pool) => {
-            let row =
-                sqlx::query("SELECT kind, payload, status FROM jobs WHERE deduplication_key = $1")
-                    .bind(deduplication_key)
-                    .fetch_one(pool)
-                    .await
-                    .unwrap();
-            (row.get("kind"), row.get("payload"), row.get("status"))
+            let row = sqlx::query(
+                "SELECT id, kind, payload, status FROM jobs WHERE deduplication_key = $1",
+            )
+            .bind(deduplication_key)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            (
+                row.get("id"),
+                row.get("kind"),
+                row.get("payload"),
+                row.get("status"),
+            )
         }
         #[cfg(feature = "mysql")]
         DatabasePool::Mysql(pool) => {
-            let row =
-                sqlx::query("SELECT kind, payload, status FROM jobs WHERE deduplication_key = ?")
-                    .bind(deduplication_key)
-                    .fetch_one(pool)
-                    .await
-                    .unwrap();
+            let row = sqlx::query(
+                "SELECT id, kind, payload, status FROM jobs WHERE deduplication_key = ?",
+            )
+            .bind(deduplication_key)
+            .fetch_one(pool)
+            .await
+            .unwrap();
             let kind: &[u8] = row.get("kind");
             let status: &[u8] = row.get("status");
+            let job_id: &[u8] = row.get("id");
             (
+                Uuid::parse_str(std::str::from_utf8(job_id).unwrap()).unwrap(),
                 std::str::from_utf8(kind).unwrap().to_owned(),
                 row.get("payload"),
                 std::str::from_utf8(status).unwrap().to_owned(),
             )
         }
     };
+    assert_eq!(job_id.get_version_num(), 7, "welcome job PK must be UUIDv7");
     assert_eq!(kind, "send_welcome_email");
     assert_eq!(payload.0, json!({ "user_id": id }));
     assert_eq!(status, "pending");

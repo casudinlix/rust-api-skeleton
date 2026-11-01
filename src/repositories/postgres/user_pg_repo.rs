@@ -4,7 +4,8 @@ use sqlx::{PgPool, Row, postgres::PgRow, types::Json};
 use uuid::Uuid;
 
 use crate::{
-    domain::models::user::{NewUser, User, UserCursor, UserPage, UserUpdate},
+    config::QueueDriver,
+    domain::models::user::{NewUser, User, UserContact, UserCursor, UserPage, UserUpdate},
     errors::{AppError, AppResult},
     repositories::user_repository::{
         UserRepository, map_user_write_error, normalize_email, page_from_users, page_limit,
@@ -14,11 +15,16 @@ use crate::{
 #[derive(Clone)]
 pub struct PostgresUserRepository {
     pool: PgPool,
+    queue_driver: QueueDriver,
 }
 
 impl PostgresUserRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self::with_queue_driver(pool, QueueDriver::Database)
+    }
+
+    pub fn with_queue_driver(pool: PgPool, queue_driver: QueueDriver) -> Self {
+        Self { pool, queue_driver }
     }
 }
 
@@ -36,6 +42,21 @@ fn user_from_row(row: PgRow) -> Result<User, sqlx::Error> {
 
 #[async_trait]
 impl UserRepository for PostgresUserRepository {
+    async fn find_contact_by_id(&self, id: Uuid) -> AppResult<Option<UserContact>> {
+        let row = sqlx::query("SELECT id AS user_id, name, email FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|row| {
+            Ok(UserContact {
+                user_id: row.try_get("user_id")?,
+                name: row.try_get("name")?,
+                email: row.try_get("email")?,
+            })
+        })
+        .transpose()
+    }
+
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
         sqlx::query(
             "SELECT id, name, email, password_hash, role, created_at, updated_at \
@@ -77,16 +98,28 @@ impl UserRepository for PostgresUserRepository {
         .map_err(map_user_write_error)?;
         let user = user_from_row(row)?;
 
-        sqlx::query(
-            "INSERT INTO jobs (id, kind, payload, deduplication_key) \
+        let payload = json!({ "user_id": user.id });
+        let key = format!("welcome:{}", user.id);
+        if self.queue_driver == QueueDriver::Redis {
+            crate::jobs::outbox::insert_postgres(
+                &mut transaction,
+                "send_welcome_email",
+                &payload,
+                Some(&key),
+            )
+            .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO jobs (id, kind, payload, deduplication_key) \
              VALUES ($1, $2, $3, $4)",
-        )
-        .bind(Uuid::new_v4())
-        .bind("send_welcome_email")
-        .bind(Json(json!({ "user_id": user.id })))
-        .bind(format!("welcome:{}", user.id))
-        .execute(&mut *transaction)
-        .await?;
+            )
+            .bind(Uuid::now_v7())
+            .bind("send_welcome_email")
+            .bind(Json(payload))
+            .bind(key)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         Ok(user)
     }

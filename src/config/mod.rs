@@ -1,5 +1,8 @@
 pub mod cache;
 pub mod database;
+pub mod queue;
+
+pub use queue::{QueueConfig, QueueDriver, RedisQueueConfig};
 
 use anyhow::{Context, ensure};
 use cache::CacheConfig;
@@ -43,15 +46,6 @@ pub struct JwtConfig {
 #[derive(Clone, Debug)]
 pub struct CorsConfig {
     pub allowed_origins: Vec<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct QueueConfig {
-    pub poll_interval_ms: u64,
-    pub visibility_timeout_secs: u64,
-    pub job_timeout_secs: u64,
-    pub max_attempts: u32,
-    pub retry_base_secs: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -104,6 +98,12 @@ struct RawSettings {
     queue_job_timeout_secs: u64,
     queue_max_attempts: u32,
     queue_retry_base_secs: u64,
+    queue_driver: String,
+    queue_concurrency: usize,
+    queue_redis_url: String,
+    queue_redis_prefix: String,
+    queue_redis_timeout_ms: u64,
+    queue_relay_enabled: bool,
     scheduler_maintenance_cron: String,
     scheduler_retention_days: u32,
     mail_transport: String,
@@ -148,6 +148,12 @@ impl Default for RawSettings {
             queue_job_timeout_secs: 30,
             queue_max_attempts: 5,
             queue_retry_base_secs: 5,
+            queue_driver: "database".into(),
+            queue_concurrency: 1,
+            queue_redis_url: String::new(),
+            queue_redis_prefix: "rust-api-skeleton:queue:v1".into(),
+            queue_redis_timeout_ms: 2_000,
+            queue_relay_enabled: true,
             scheduler_maintenance_cron: "0 */5 * * * *".into(),
             scheduler_retention_days: 7,
             mail_transport: "log".into(),
@@ -162,13 +168,24 @@ impl Default for RawSettings {
 
 impl Settings {
     pub fn load() -> anyhow::Result<Self> {
+        Self::load_with_queue_driver(None)
+    }
+
+    /// Process-local override; never mutates global environment after Tokio starts.
+    pub fn load_with_queue_driver(driver: Option<QueueDriver>) -> anyhow::Result<Self> {
         match dotenvy::dotenv() {
             Ok(_) => {}
             Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => anyhow::bail!("could not load .env; check its syntax and permissions"),
         }
-        let source = config::Config::builder()
-            .add_source(config::Environment::default().try_parsing(true))
+        let mut builder =
+            config::Config::builder().add_source(config::Environment::default().try_parsing(true));
+        if let Some(driver) = driver {
+            builder = builder
+                .set_override("queue_driver", driver.to_string())
+                .map_err(|_| anyhow::anyhow!("could not override queue driver"))?;
+        }
+        let source = builder
             .build()
             .map_err(|_| anyhow::anyhow!("could not read environment configuration"))?;
         Self::from_config(source)
@@ -225,11 +242,19 @@ impl Settings {
                     .collect(),
             },
             queue: QueueConfig {
+                driver: raw.queue_driver.parse().context("invalid QUEUE_DRIVER")?,
                 poll_interval_ms: raw.queue_poll_interval_ms,
                 visibility_timeout_secs: raw.queue_visibility_timeout_secs,
                 job_timeout_secs: raw.queue_job_timeout_secs,
                 max_attempts: raw.queue_max_attempts,
                 retry_base_secs: raw.queue_retry_base_secs,
+                concurrency: raw.queue_concurrency,
+                redis: RedisQueueConfig {
+                    url: raw.queue_redis_url,
+                    prefix: raw.queue_redis_prefix,
+                    timeout_ms: raw.queue_redis_timeout_ms,
+                },
+                relay_enabled: raw.queue_relay_enabled,
             },
             scheduler: SchedulerConfig {
                 maintenance_cron: raw.scheduler_maintenance_cron,
@@ -251,6 +276,7 @@ impl Settings {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.database.validate()?;
         self.cache.validate()?;
+        self.queue.validate()?;
         ensure!(
             self.app.host.parse::<std::net::IpAddr>().is_ok(),
             "APP_HOST must be an IP address"
@@ -315,31 +341,19 @@ impl Settings {
             );
         }
         ensure!(
-            (100..=60_000).contains(&self.queue.poll_interval_ms),
-            "QUEUE_POLL_INTERVAL_MS must be 100..60000"
-        );
-        ensure!(
-            (1..=300).contains(&self.queue.job_timeout_secs),
-            "QUEUE_JOB_TIMEOUT_SECS must be 1..300"
-        );
-        ensure!(
-            self.queue.visibility_timeout_secs >= self.queue.job_timeout_secs + 10
-                && self.queue.visibility_timeout_secs <= 3600,
-            "QUEUE_VISIBILITY_TIMEOUT_SECS must exceed the job timeout by at least 10 seconds, and be <=3600"
-        );
-        ensure!(
-            (1..=100).contains(&self.queue.max_attempts),
-            "QUEUE_MAX_ATTEMPTS must be 1..100"
-        );
-        ensure!(
-            (1..=3600).contains(&self.queue.retry_base_secs),
-            "QUEUE_RETRY_BASE_SECS must be 1..3600"
-        );
-        ensure!(
             self.app.shutdown_timeout_secs > self.queue.job_timeout_secs
                 && self.app.shutdown_timeout_secs > self.app.request_timeout_secs,
             "SHUTDOWN_TIMEOUT_SECS must exceed request and job timeouts"
         );
+        if self.queue.driver == QueueDriver::Redis {
+            // Final transport ACK, Apalis close, then two bounded cleanup calls.
+            // The process deadline still bounds slow SQL and failed connections.
+            let cleanup_budget = (self.queue.redis.timeout_ms * 4).div_ceil(1_000);
+            ensure!(
+                self.app.shutdown_timeout_secs > self.queue.job_timeout_secs + cleanup_budget,
+                "SHUTDOWN_TIMEOUT_SECS must exceed job timeout plus four Redis operation timeouts"
+            );
+        }
         ensure!(
             (1..=3650).contains(&self.scheduler.retention_days),
             "SCHEDULER_RETENTION_DAYS must be 1..3650"
@@ -417,6 +431,18 @@ mod tests {
         let mut s = settings();
         s.queue.visibility_timeout_secs = s.queue.job_timeout_secs;
         assert!(s.validate().is_err());
+    }
+
+    #[test]
+    fn redis_shutdown_reserves_time_for_transport_ack_and_cleanup() {
+        let mut s = settings();
+        s.queue.driver = QueueDriver::Redis;
+        s.queue.redis.url = "redis://127.0.0.1:6379/0".into();
+        s.queue.redis.timeout_ms = 2_001;
+        s.app.shutdown_timeout_secs = s.queue.job_timeout_secs + 8;
+        assert!(s.validate().is_err());
+        s.app.shutdown_timeout_secs = s.queue.job_timeout_secs + 10;
+        s.validate().unwrap();
     }
 
     #[test]

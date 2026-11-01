@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     config::JwtConfig,
-    domain::models::user::{NewUser, User, UserCursor, UserPage, UserUpdate},
+    domain::models::user::{NewUser, User, UserContact, UserCursor, UserPage, UserUpdate},
     errors::{AppError, AppResult},
     repositories::UserRepository,
 };
@@ -37,6 +37,14 @@ impl MemoryUsers {
 
 #[async_trait]
 impl UserRepository for MemoryUsers {
+    async fn find_contact_by_id(&self, id: Uuid) -> AppResult<Option<UserContact>> {
+        Ok(self.users.lock().unwrap().get(&id).map(|user| UserContact {
+            user_id: user.id,
+            name: user.name.clone(),
+            email: user.email.clone(),
+        }))
+    }
+
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
         self.id_lookups.fetch_add(1, Ordering::Relaxed);
         Ok(self.users.lock().unwrap().get(&id).cloned())

@@ -121,7 +121,7 @@ reported in that targeted re-review.
 
 The initial verification record above describes the original skeleton. The
 following checks were executed after adding optional Redis caching; these are the
-current test counts for the extended implementation.
+test counts at that stage. Later extensions have separate records below.
 
 Environment: redis-rs **1.8.1**, Redis server **8.0.5**, PostgreSQL **16.15**, MySQL
 **8.0.46**, and the same Rust/Axum/SQLx versions recorded above. Redis ran as an
@@ -171,9 +171,10 @@ reported no remaining blocking finding.
 
 ### Scope and remaining verification limits
 
-This change implements a cache driver. Redis queue transport, SQL outbox relay and
-Redis-backed worker dispatch are not implemented; the existing DatabaseQueue is
-unchanged. No user, role, password hash or JWT is automatically cached.
+At the cache-extension stage, Redis queue transport, SQL outbox relay and
+Redis-backed worker dispatch were not yet implemented. That scope is superseded
+by the queue-extension record below. No user, role, password hash or JWT is
+automatically cached.
 
 The Redis integration endpoint used `redis://`. `rediss://` support and rejection
 of insecure options are configured/tested at the URL layer, but a real TLS
@@ -187,3 +188,130 @@ the process with redis-rs 1.8.1. `remember` continues to use its loader during t
 failure. This is distinct from the initial authentication and ordinary network
 recovery scenarios exercised above. CI now includes Redis; remote run results are
 reported by GitHub separately from this local verification record.
+
+## Redis queue and transactional outbox — 1 November 2026
+
+This record covers the optional Apalis Redis transport, PostgreSQL/MySQL outbox,
+shared queue facade, configurable concurrency, relay process and deployment
+documentation added after baseline `171b842`. Database queue remains the default.
+The earlier sections are historical verification records, not current test counts.
+
+Environment: Rust **1.99.1**, SQLx **0.8.6**, Apalis **1.0.0**, locally patched
+Apalis Redis **1.0.0**, redis-rs **1.8.1**, Redis server **8.0.5**, PostgreSQL
+**16.15**, and MySQL **8.0.46**. The Redis queue test server was separate from
+the cache server and used AOF `everysec` with `noeviction`. All credentials,
+databases and namespaces used for these checks were disposable test fixtures.
+
+### Executed checks
+
+| Check | Final result |
+|---|---|
+| `make check`: format and Clippy with warnings denied | Passed |
+| Library unit tests | 75 passed; the 6 live Redis transport cases were executed separately |
+| Artisan unit tests | 35 passed |
+| HTTP, Artisan CLI and Make wrapper contracts | 19 passed |
+| Rustdoc example | 1 passed (compilation) |
+| PostgreSQL-only and MySQL-only all-target compilation | Both passed |
+| Real PostgreSQL repository/API/database-queue/outbox suites | 4 suites passed |
+| Real MySQL repository/API/database-queue/outbox suites | 4 suites passed |
+| Redis cache regressions | 7 passed |
+| Live Redis transport regressions | 6 passed |
+| Redis worker/outbox E2E with PostgreSQL and MySQL | Both passed |
+| Generated scaffold fixture with both drivers, PostgreSQL-only and MySQL-only | Passed; vendored dependency copied and compiled offline |
+| `cargo build --locked --release --bins` | Passed, including the new relay binary |
+| Native API + worker + standalone relay + scheduler | Passed; all four processes exited 0 on SIGTERM |
+| Compose/CI YAML parsing and relative documentation links | Passed |
+
+`make check` runs 129 tests without external services plus the compiled rustdoc
+example. Its ignored network tests were also executed explicitly, using the
+compiled test binaries with `--ignored --test-threads=1` and isolated database/
+Redis fixtures. These correspond to `make test-postgres`, `make test-mysql`,
+`make test-redis`, `make test-redis-transport`, `make test-queue-postgres` and
+`make test-queue-mysql`. Ignored status in the default run is not counted as a pass.
+The separate ignored scaffold test also passed. Total executed unique named tests
+for this revision: **153**, plus the compiled rustdoc example. Extra reruns of
+the same cases are not counted again.
+
+### Database and recovery behavior
+
+- Registration through real `Settings`/`AppState` selects the configured driver;
+  Redis mode inserts the user and outbox in one transaction, without a Redis
+  network operation. A welcome-job dedupe conflict rolls back the user insert.
+- New outbox and database job creation paths are checked for UUIDv7. Application
+  identity stays stable across retries and duplicate transport deliveries.
+- Relay reservations, uncertain publish outcomes, lost publisher recovery,
+  expired execution leases, concurrent delivery, stale/fabricated tokens,
+  retry delay, permanent failure and final-attempt crash recovery are exercised.
+- Completed jobs are not executed again. Outbox retention deletes 1,000 then
+  the remaining 5 old completed records, while preserving failed records.
+- Redis unavailability does not prevent SQL registration/outbox durability;
+  worker cancellation is bounded and a later healthy worker processes the backlog.
+- A Redis worker leaves the legacy SQL backlog available. A worker explicitly
+  configured for the database backend then drains those jobs.
+- SQL query/index candidates were measured on 50,000-row disposable fixtures
+  before runtime implementation. See [the design record](design/redis-queue.md)
+  for both engines' actual plans, data distribution and limits of the measurements.
+
+### Failures found and corrected
+
+1. **Execution-claim contention.** E2E on PostgreSQL exposed a race between the
+   relay's publish-completion UPDATE and the worker's point lookup. `SKIP LOCKED`
+   treated a brief publisher lock as a duplicate delivery, delaying processing
+   until the next relay lease. Point lookups now use `FOR UPDATE` with a one-second
+   deadline covering acquire through commit; the candidate-scanning relay still
+   uses `SKIP LOCKED`. A regression holds the row lock, confirms the claim waits,
+   releases the lock, then verifies immediate ownership at attempt 1. The E2E
+   deadline was not increased. PostgreSQL also passed two extra repetitions after
+   the fix, and both engines passed again on the final source.
+2. **MySQL cancellation and pool reuse.** A one-slot pool regression showed that
+   graceful connection closure could wait behind a blocked MySQL operation.
+   An unfinished claim now detaches and drops its raw connection; successful
+   commits retain pool reuse. The unchanged regression verifies the one-second
+   claim timeout, a successful pool ping before the blocking transaction is
+   released, and normal claim/ACK afterward on both engines.
+3. **Unbounded upstream Redis work.** Apalis Redis 1.0.0 promotes all due scheduled
+   deliveries and scans all expired workers in its original Lua hot paths.
+   The local patch bounds scheduled promotion and resumable orphan recovery by
+   configured batch size. A 10,240-delivery test failed with the original fetch
+   script, then processed every delivery after the patch. Separate regressions
+   prove partial recovery remains discoverable and active workers are preserved.
+   [PATCHES.md](../vendor/apalis-redis/PATCHES.md) records source provenance,
+   licensing, the exact three-file upstream diff and the patch removal criteria.
+
+Transport checks also verify the versioned/bounded envelope, fresh internal
+delivery IDs for repeated application UUIDs, invalid-envelope disposal,
+concurrency limits, current-job drain, bounded terminal cleanup, and sanitized
+authentication/connection failures. No test performs a global Redis flush.
+
+### Native process smoke test
+
+A fresh PostgreSQL database was migrated with the real `migrate` binary. The test
+started separate `api`, `worker`, `relay` and `scheduler` binaries, with the
+worker's bundled relay disabled. HTTP registration returned 201 and authenticated
+profile lookup returned 200. SQL then contained:
+
+```text
+maintenance|completed|1|7
+send_welcome_email|completed|1|7
+```
+
+The final field is the UUID version; no legacy `jobs` record was inserted.
+All four processes received SIGTERM and exited with code 0. The test removed its
+database and only its own Redis namespace/catalogue entry. Email used the explicit
+log simulation, so no real email was sent.
+
+### Scope and remaining limits
+
+- The local MySQL runtime was 8.0.46; Compose/CI specify 8.4, which was not run here.
+- Docker was unavailable, so the image build/run and `docker compose config`
+  were not executed. YAML parsing and native compilation do not substitute for them.
+- A live Redis TLS handshake, Sentinel/Cluster discovery, SMTP delivery, failover
+  infrastructure and production load were not tested. The adapter exposes a
+  standalone Redis endpoint; TLS URL validation is covered.
+- SQL is still the authoritative ledger in Redis mode. Transport deduplication
+  and lease fencing do not guarantee exactly-once external side effects.
+- The new table follows the named UUIDv7 PK convention. Generic legacy PK column
+  names, old stored IDs and the wider legacy items listed in the system-design
+  rules were not silently migrated by this feature.
+- Local verification is the acceptance evidence. GitHub Actions availability or
+  quota is not used as the completion gate, and no production deployment was made.

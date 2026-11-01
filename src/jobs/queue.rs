@@ -8,7 +8,10 @@ use crate::{
     errors::{AppError, AppResult},
 };
 
-use super::backoff::retry_delay_secs;
+use super::{
+    backoff::retry_delay_with_jitter,
+    validation::{safe_failure_reason, validate_job},
+};
 
 /// A committed reservation. Its token is replaced on every claim, including
 /// recovery after a crashed worker. Payloads deliberately do not implement Debug.
@@ -40,24 +43,8 @@ impl DatabaseQueue {
         payload: Value,
         deduplication_key: Option<&str>,
     ) -> AppResult<()> {
-        if kind.is_empty()
-            || kind.len() > 64
-            || !kind
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-        {
-            return Err(AppError::BadRequest("invalid job kind".into()));
-        }
-        if deduplication_key.is_some_and(|key| {
-            key.is_empty()
-                || key.len() > 191
-                || !key.bytes().all(|byte| {
-                    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b':' | b'.')
-                })
-        }) {
-            return Err(AppError::BadRequest("invalid job deduplication key".into()));
-        }
-        let id = Uuid::new_v4();
+        validate_job(kind, &payload, deduplication_key)?;
+        let id = Uuid::now_v7();
         match &self.database {
             #[cfg(feature = "postgres")]
             DatabasePool::Postgres(pool) => {
@@ -242,9 +229,10 @@ impl DatabaseQueue {
     /// Store a safe error category, never a raw external-service error containing
     /// credentials, message bodies, or recipient addresses.
     pub async fn fail(&self, job: &ReservedJob, reason: &str) -> AppResult<bool> {
-        let delay = retry_delay_secs(self.config.retry_base_secs, job.attempts) as i64;
+        let delay =
+            retry_delay_with_jitter(self.config.retry_base_secs, job.attempts, job.id) as i64;
         let maximum = i64::from(self.config.max_attempts);
-        let reason: String = reason.chars().take(512).collect();
+        let reason = safe_failure_reason(reason);
         let affected = match &self.database {
             #[cfg(feature = "postgres")]
             DatabasePool::Postgres(pool) => sqlx::query(
@@ -253,7 +241,7 @@ impl DatabaseQueue {
                      ELSE clock_timestamp() + ($4::bigint * INTERVAL '1 second') END, \
                  locked_until = NULL, lock_token = NULL, last_error = $5, updated_at = clock_timestamp() \
                  WHERE id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
-            ).bind(job.id).bind(job.lock_token).bind(maximum).bind(delay).bind(&reason)
+            ).bind(job.id).bind(job.lock_token).bind(maximum).bind(delay).bind(reason)
                 .execute(pool).await?.rows_affected(),
             #[cfg(feature = "mysql")]
             DatabasePool::Mysql(pool) => sqlx::query(
@@ -262,8 +250,28 @@ impl DatabaseQueue {
                      ELSE DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? SECOND) END, \
                  locked_until = NULL, lock_token = NULL, last_error = ?, updated_at = UTC_TIMESTAMP(6) \
                  WHERE id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
-            ).bind(maximum).bind(maximum).bind(delay).bind(&reason)
+            ).bind(maximum).bind(maximum).bind(delay).bind(reason)
                 .bind(job.id.to_string()).bind(job.lock_token.to_string())
+                .execute(pool).await?.rows_affected(),
+        };
+        Ok(affected == 1)
+    }
+
+    pub async fn fail_permanently(&self, job: &ReservedJob, reason: &str) -> AppResult<bool> {
+        let reason = safe_failure_reason(reason);
+        let affected = match &self.database {
+            #[cfg(feature = "postgres")]
+            DatabasePool::Postgres(pool) => sqlx::query(
+                "UPDATE jobs SET status = 'failed', locked_until = NULL, lock_token = NULL, \
+                 last_error = $3, updated_at = clock_timestamp() \
+                 WHERE id = $1 AND lock_token = $2 AND status = 'running' AND locked_until > clock_timestamp()",
+            ).bind(job.id).bind(job.lock_token).bind(reason).execute(pool).await?.rows_affected(),
+            #[cfg(feature = "mysql")]
+            DatabasePool::Mysql(pool) => sqlx::query(
+                "UPDATE jobs SET status = 'failed', locked_until = NULL, lock_token = NULL, \
+                 last_error = ?, updated_at = UTC_TIMESTAMP(6) \
+                 WHERE id = ? AND lock_token = ? AND status = 'running' AND locked_until > UTC_TIMESTAMP(6)",
+            ).bind(reason).bind(job.id.to_string()).bind(job.lock_token.to_string())
                 .execute(pool).await?.rows_affected(),
         };
         Ok(affected == 1)

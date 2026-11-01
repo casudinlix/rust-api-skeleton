@@ -124,24 +124,18 @@ Worker dapat menggunakan Redis sebagai cache dengan menerima facade `Cache` pada
 handler yang membutuhkannya. Library cache dapat dipakai oleh semua binary, tetapi
 bootstrap worker bawaan belum menginjeksi cache ke welcome-email handler.
 
-Redis juga dapat menjadi backend queue. **Driver queue Redis belum disertakan**
-dalam perubahan cache ini: `CACHE_DRIVER=redis` tetap mempertahankan
-`DatabaseQueue`, beserta transaksi atomik pembuatan user dan welcome job.
+Queue dapat dipilih dengan `QUEUE_DRIVER=database|redis`, terpisah dari
+`CACHE_DRIVER`. Driver Redis memakai **Apalis dan transactional outbox SQL**:
+perubahan domain dan outbox dicatat bersama, relay menerbitkan ID setelah commit,
+dan worker mengambil lease SQL sebelum menjalankan handler. Payload/hasil tetap
+berada di SQL, sehingga delivery duplikat atau Redis yang kehilangan data dapat
+dipulihkan. Idempotensi efek eksternal tetap menjadi tanggung jawab handler.
 
-Untuk menambahkan queue Redis tanpa kehilangan transaksi tersebut, rancangan
-lanjutannya adalah:
-
-1. Tulis perubahan domain dan event/outbox pada transaksi SQL yang sama.
-2. Relay membaca event yang sudah commit dan mengirimkannya ke Redis Streams.
-3. Worker consumer group memproses job lalu mengirim ACK setelah pekerjaan sukses.
-4. Recovery mengambil kembali job yang ditinggalkan worker; retry, failed jobs,
-   deduplikasi dan idempotency tetap harus ditentukan secara eksplisit.
-
-Relay dapat mengirim ulang setelah crash, sehingga consumer harus idempotent.
-Commit SQL kemudian publish langsung ke Redis tanpa outbox memiliki celah ketika
-database sudah commit tetapi proses berhenti sebelum publish. Redis menyediakan
-[Streams, consumer groups, ACK dan claim recovery](https://redis.io/docs/latest/develop/data-types/streams/)
-sebagai mekanisme dasar untuk implementasi queue tersebut.
+Queue menggunakan `QUEUE_REDIS_URL` dan `QUEUE_REDIS_PREFIX`; cache tetap memakai
+`REDIS_URL` dan `CACHE_PREFIX`. Apalis mempunyai struktur antrean internal sendiri;
+driver ini tidak menggunakan Redis Streams. `make serve` mengelola relay bersama
+worker Redis secara default. Cara mengaktifkan, memisahkan relay, menguras backlog
+lama, serta menguji kedua driver ada pada [panduan queue](queue.md).
 
 Untuk produksi, pisahkan instance Redis cache dan queue. Cache boleh memakai
 eviction seperti `allkeys-lru`; queue perlu kebijakan retensi/persistence dan

@@ -1,0 +1,2 @@
+# Preserve the published dependency README byte-for-byte, including its blank line.
+/vendor/apalis-redis/README.md -whitespace

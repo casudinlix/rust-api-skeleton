@@ -87,7 +87,7 @@ impl WelcomeEmailHandler {
         let payload: WelcomePayload =
             serde_json::from_value(payload.clone()).map_err(|_| JobError::InvalidPayload)?;
         let Some(user) = repository
-            .find_by_id(payload.user_id)
+            .find_contact_by_id(payload.user_id)
             .await
             .map_err(|_| JobError::UserLookup)?
         else {
@@ -97,7 +97,7 @@ impl WelcomeEmailHandler {
         };
         match &self.delivery {
             Delivery::Log => {
-                tracing::info!(%job_id, user_id = %user.id, transport = "log", "welcome email simulated; log transport does not deliver email");
+                tracing::info!(%job_id, user_id = %user.user_id, transport = "log", "welcome email simulated; log transport does not deliver email");
             }
             Delivery::Smtp { sender, client } => {
                 let recipient: Mailbox =
@@ -110,7 +110,7 @@ impl WelcomeEmailHandler {
                     // SMTP still provides no exactly-once delivery guarantee.
                     .message_id(Some(format!(
                         "<welcome-{}@jobs.rust-api-skeleton.invalid>",
-                        user.id
+                        user.user_id
                     )))
                     .header(ContentType::TEXT_PLAIN)
                     .body(format!(
@@ -124,7 +124,7 @@ impl WelcomeEmailHandler {
                     .send(message)
                     .await
                     .map_err(|_| JobError::SmtpDelivery)?;
-                tracing::info!(%job_id, user_id = %user.id, transport = "smtp", "welcome email accepted by SMTP server");
+                tracing::info!(%job_id, user_id = %user.user_id, transport = "smtp", "welcome email accepted by SMTP server");
             }
         }
         Ok(())
