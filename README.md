@@ -12,6 +12,8 @@ database yang sama, sehingga job tetap tersedia setelah proses restart.
 - Axum 0.8, Tokio, SQLx 0.8.6, Rust 2024 edition.
 - PostgreSQL dan MySQL: default build memuat kedua driver; bisa build satu driver.
 - Cache Redis opsional: JSON, TTL, namespace, timeout, dan helper `remember`.
+- Command bergaya Laravel melalui `make` dan binary Rust `artisan`: install,
+  server + worker, generator modul, migration, key, dan dependency management.
 - Register/login JWT HS256, Argon2id, current-user guard, admin guard.
 - CRUD user untuk admin, profile sendiri untuk user, cursor pagination.
 - Normalisasi sebelum validasi, JSON envelope, error terpusat, CORS allowlist.
@@ -29,9 +31,9 @@ database yang sama, sehingga job tetap tersedia setelah proses restart.
 ### Persiapan
 
 Jika menggunakan paket source ZIP, ekstrak folder `rust-api-skeleton/` dan mulai
-dari langkah `cp .env.example .env`; tidak perlu melakukan clone lagi.
+dari langkah `make install`; tidak perlu melakukan clone lagi.
 
-Pasang Rust melalui [rustup](https://rustup.rs/). File `rust-toolchain.toml`
+Pasang Rust melalui [rustup](https://rustup.rs/) dan GNU Make. File `rust-toolchain.toml`
 menetapkan **Rust 1.99.1** beserta rustfmt dan clippy. Gunakan PostgreSQL 16+
 atau MySQL 8.0.16+; Compose/CI menyediakan MySQL 8.4. MySQL harus memakai InnoDB
 dan mendukung `SKIP LOCKED` serta enforced CHECK constraints. MariaDB belum diuji.
@@ -39,44 +41,56 @@ dan mendukung `SKIP LOCKED` serta enforced CHECK constraints. MariaDB belum diuj
 ```bash
 git clone https://github.com/casudinlix/rust-api-skeleton.git
 cd rust-api-skeleton
-cp .env.example .env
-openssl rand -hex 32
+make install
 ```
 
-Salin hasil perintah terakhir ke `JWT_SECRET` dalam `.env`. Placeholder bawaan
-sengaja ditolak. Isi `DATABASE_URL` untuk database yang sudah dibuat.
+`make install` menyiapkan `.env` dari contoh bila belum ada, menghasilkan
+`JWT_SECRET` acak bila masih kosong/placeholder, lalu mengambil dan membangun
+dependency sesuai `Cargo.lock`. Konfigurasi dan key yang sudah valid dipertahankan.
+Secret tidak dicetak ke terminal. Isi `DATABASE_URL` untuk database yang sudah
+dibuat; command ini tidak membuat database atau menjalankan migration.
 
 Untuk database development via Docker:
 
 ```bash
 # PostgreSQL: default .env.example
-docker compose --profile postgres up -d --wait postgres
+make docker-db DB_DRIVER=postgres
 
 # Alternatif MySQL, setelah mengganti DB_DRIVER dan kedua DATABASE_URL di .env:
-# docker compose --profile mysql up -d --wait mysql
+# make docker-db DB_DRIVER=mysql
 ```
 
-### Migration dan tiga proses aplikasi
+### Migration, API, dan worker
 
 ```bash
-cargo run --locked --bin migrate
-cargo run --locked --bin api
+make migrate
+make serve
 ```
 
-Buka dua terminal tambahan dari direktori yang sama:
+`make serve` membangun binary lalu menjalankan **API + worker** dalam satu terminal.
+Ctrl+C/SIGTERM menghentikan keduanya bersama. Bila satu proses keluar tanpa
+diminta, supervisor menghentikan proses lainnya dan mengembalikan status gagal.
+Supervisor development ini mendukung Unix (Linux/macOS; gunakan WSL pada Windows).
+Untuk menyertakan scheduler:
 
 ```bash
-cargo run --locked --bin worker
+make serve SCHEDULER=1
 ```
 
+Untuk terminal atau process manager terpisah, shortcut lama tetap tersedia:
+
 ```bash
-cargo run --locked --bin scheduler
+make run
+make worker
+make scheduler
 ```
 
 `cargo run --locked` secara default menjalankan `api`. `src/main.rs` tetap tersedia
-sebagai entrypoint kompatibilitas `rust-api-skeleton`; semua binary menggunakan
-bootstrap library yang sama. `make run`, `make worker`, `make scheduler`, dan
-`make migrate` menyediakan shortcut.
+sebagai entrypoint kompatibilitas `rust-api-skeleton`; API, worker, scheduler, dan
+migrate menggunakan bootstrap library yang sama. `make serve` tidak melakukan
+reload otomatis saat
+kode berubah; hentikan lalu jalankan ulang setelah mengedit kode. Untuk deployment,
+jalankan API/worker/scheduler sebagai service terpisah seperti contoh Docker.
 
 ```bash
 curl --fail http://127.0.0.1:3000/health
@@ -87,6 +101,9 @@ Migration tidak berjalan otomatis ketika API/worker/scheduler boot. Jalankan
 `migrate` sebagai langkah deployment sebelum menjalankan atau mengganti service.
 Binary `migrate` hanya menerapkan migration maju; tidak menyediakan reset database
 atau rollback destruktif otomatis.
+
+Lihat [panduan command development](docs/development.md) untuk generator,
+penambahan package, rotasi key, dan contoh alur membuat fitur.
 
 ## 2. Memilih database
 
@@ -287,13 +304,29 @@ user + job dijelaskan dalam [panduan cache dan Redis worker](docs/cache.md#redis
 | Jobs | `src/jobs/` | Queue durability dan job handlers |
 | Scheduler | `src/schedulers/task_scheduler.rs` | UTC cron mengantrekan job |
 | Bootstrap/state | `src/bootstrap.rs`, `src/state.rs` | Dependency wiring dan process lifecycle |
-| Executables | `src/bin/` | `api`, `worker`, `scheduler`, `migrate` |
+| Developer tools | `src/console/` | Bootstrap project, generator, dependency commands, supervisor |
+| Executables | `src/bin/` | `api`, `worker`, `scheduler`, `migrate`, `artisan` |
 
 Untuk modul baru: buat model/DTO dan service, definisikan trait repository,
 implementasikan kedua dialect, kemudian daftarkan handler/route. Buat migration
 dengan versi yang sama di kedua direktori database. Jangan mengedit migration
 yang sudah diterapkan; SQLx memeriksa checksum. Integration tests harus menguji
 query sebenarnya pada PostgreSQL dan MySQL.
+
+Generator menyediakan titik awal untuk langkah-langkah tersebut:
+
+```bash
+make controller NAME=CustomerController
+make model NAME=Customer
+make request NAME=CreateCustomerRequest
+make service NAME=CustomerService
+make repository NAME=CustomerRepository
+make migration NAME=create_customers_table
+```
+
+Modul Rust didaftarkan otomatis. Business logic, dependency injection, policy,
+route, dan SQL tetap Anda lengkapi secara eksplisit. Generator menolak file/modul
+yang sudah ada; lihat [panduan development](docs/development.md) untuk detail.
 
 Untuk job baru: tetapkan `kind` dan payload ber-versi yang tidak menyimpan secret,
 buat handler idempotent, lalu daftarkan dispatch di `src/jobs/worker.rs`. Gunakan
@@ -333,7 +366,13 @@ make check
 
 Perintah tersebut menjalankan format check, clippy dengan warning sebagai error,
 unit/HTTP tests dan contoh rustdoc, lalu compile PostgreSQL-only dan MySQL-only.
-`Cargo.lock` disertakan dan semua build/test memakai `--locked`.
+`Cargo.lock` disertakan dan build/test memakai `--locked`. Perintah `make require`,
+`make remove`, dan `make update` sengaja dapat mengubah manifest/lockfile.
+
+Untuk verifikasi generator dari pembuatan file sampai compile hasilnya, jalankan
+`make test-scaffolds`. Suite ini memakai salinan project sementara dan ditandai
+ignored karena menjalankan Cargo lagi pada output generator; tidak memerlukan
+database dan tidak dijalankan otomatis di dalam `make check`.
 
 Integration suites ditandai ignored supaya unit tests tidak membutuhkan DB.
 Jalankan secara eksplisit dengan **database disposable**, dan akun test yang
@@ -359,7 +398,9 @@ dijalankan secara eksplisit oleh `make test-redis` serta job CI integrasi.
 
 Detail hasil yang benar-benar dijalankan tersedia di
 [verification.md](docs/verification.md). Workflow CI dikonfigurasi untuk PostgreSQL
-16, MySQL 8.4, dan Redis 8.0; statusnya bergantung pada hasil runner repository.
+16, MySQL 8.4, dan Redis 8.0. Verifikasi lokal menjadi acuan penyelesaian perubahan.
+Status merah GitHub Actions juga dapat berasal dari kuota/runner yang tidak
+tersedia; periksa log penyebabnya, jangan menyimpulkan kode gagal hanya dari badge.
 
 ## 8. Cache Redis
 

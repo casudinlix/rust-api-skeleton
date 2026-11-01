@@ -1,4 +1,5 @@
 /target/
+/.artisan.lock
 .env
 .env.*
 !.env.example

@@ -1,0 +1,203 @@
+mod generate;
+mod install;
+mod packages;
+mod project;
+mod serve;
+mod templates;
+
+use std::{path::PathBuf, time::Duration};
+
+use clap::{Args, Parser, Subcommand, builder::BoolishValueParser};
+
+#[derive(Parser)]
+#[command(
+    name = "artisan",
+    version,
+    about = "Laravel-style development commands for the Rust API skeleton"
+)]
+struct Cli {
+    /// Project directory; defaults to the nearest parent containing Cargo.toml and src/lib.rs.
+    #[arg(long, global = true, value_name = "PATH")]
+    root: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Initialize .env and JWT key, then fetch/build locked dependencies. Does not migrate.
+    Install,
+    /// Build once and supervise API + worker on Unix. Ctrl+C stops all processes.
+    Serve {
+        /// Also start the task scheduler.
+        #[arg(long, env = "ARTISAN_SCHEDULER", value_parser = BoolishValueParser::new())]
+        scheduler: bool,
+        /// Graceful shutdown deadline before forced cleanup; keep above application timeout.
+        #[arg(long, env = "ARTISAN_SHUTDOWN_TIMEOUT", default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
+        shutdown_timeout: u64,
+    },
+    /// Generate a missing/placeholder JWT key. Explicit --force rotates a configured key.
+    #[command(name = "key:generate")]
+    Key {
+        /// Rotate the key and invalidate tokens signed with the previous key.
+        #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
+        force: bool,
+    },
+    /// Generate a JSON handler and register its module; wire routes explicitly.
+    #[command(name = "make:controller")]
+    Controller(Name),
+    /// Generate a domain model.
+    #[command(name = "make:model")]
+    Model(Name),
+    /// Generate a validated request DTO with normalization.
+    #[command(name = "make:request", visible_alias = "make:dto")]
+    Request(Name),
+    /// Generate a service boundary.
+    #[command(name = "make:service")]
+    Service(Name),
+    /// Generate a repository trait and PostgreSQL/MySQL adapters.
+    #[command(name = "make:repository")]
+    Repository(Name),
+    /// Generate a job payload and handler; wire dispatch explicitly.
+    #[command(name = "make:job")]
+    Job(Name),
+    /// Generate a middleware scaffold; implement its policy before attaching it.
+    #[command(name = "make:middleware")]
+    Middleware(Name),
+    /// Generate matching PostgreSQL/MySQL SQL files; complete both before migrating.
+    #[command(name = "make:migration")]
+    Migration(Name),
+    /// Add a crates.io package with Cargo (e.g. serde@1).
+    Require {
+        #[command(flatten)]
+        package: Package,
+        /// Comma-separated dependency features.
+        #[arg(long, env = "ARTISAN_FEATURES", hide_env_values = true)]
+        features: Option<String>,
+        /// Add to dev-dependencies.
+        #[arg(long, env = "ARTISAN_DEV", value_parser = BoolishValueParser::new())]
+        dev: bool,
+    },
+    /// Remove a dependency with Cargo.
+    Remove {
+        #[command(flatten)]
+        package: Package,
+        /// Remove from dev-dependencies.
+        #[arg(long, env = "ARTISAN_DEV", value_parser = BoolishValueParser::new())]
+        dev: bool,
+    },
+    /// Update Cargo.lock, optionally selecting one package.
+    Update {
+        #[arg(
+            env = "ARTISAN_PACKAGE",
+            hide_env_values = true,
+            value_name = "PACKAGE"
+        )]
+        package: Option<String>,
+    },
+}
+
+#[derive(Args)]
+struct Name {
+    #[arg(env = "ARTISAN_NAME", hide_env_values = true, value_name = "NAME")]
+    name: String,
+}
+
+#[derive(Args)]
+struct Package {
+    #[arg(
+        env = "ARTISAN_PACKAGE",
+        hide_env_values = true,
+        value_name = "PACKAGE"
+    )]
+    package: String,
+}
+
+pub async fn run() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    let root = project::discover(cli.root.as_deref())?;
+    match cli.command {
+        Command::Install => {
+            {
+                let _guard = project::lock(&root)?;
+                report_environment(install::initialize(&root, false, false)?);
+            }
+            packages::fetch_and_build(&root)?;
+            println!(
+                "Project initialized. Configure .env, start your database, then run make migrate and make serve."
+            );
+        }
+        Command::Serve {
+            scheduler,
+            shutdown_timeout,
+        } => {
+            serve::run(
+                &root,
+                serve::Options {
+                    scheduler,
+                    shutdown_timeout: Duration::from_secs(shutdown_timeout),
+                },
+            )
+            .await?;
+        }
+        Command::Key { force } => {
+            let _guard = project::lock(&root)?;
+            report_environment(install::initialize(&root, true, force)?);
+        }
+        Command::Require {
+            package,
+            features,
+            dev,
+        } => {
+            let _guard = project::lock(&root)?;
+            packages::require(&root, &package.package, features.as_deref(), dev)?;
+        }
+        Command::Remove { package, dev } => {
+            let _guard = project::lock(&root)?;
+            packages::remove(&root, &package.package, dev)?;
+        }
+        Command::Update { package } => {
+            let _guard = project::lock(&root)?;
+            packages::update(&root, package.as_deref())?;
+        }
+        command => {
+            let (kind, name) = match command {
+                Command::Controller(name) => (generate::Kind::Controller, name.name),
+                Command::Model(name) => (generate::Kind::Model, name.name),
+                Command::Request(name) => (generate::Kind::Request, name.name),
+                Command::Service(name) => (generate::Kind::Service, name.name),
+                Command::Repository(name) => (generate::Kind::Repository, name.name),
+                Command::Job(name) => (generate::Kind::Job, name.name),
+                Command::Middleware(name) => (generate::Kind::Middleware, name.name),
+                Command::Migration(name) => (generate::Kind::Migration, name.name),
+                _ => unreachable!("non-generator command was already handled"),
+            };
+            let _guard = project::lock(&root)?;
+            for relative in generate::run(&root, kind, &name)? {
+                println!("Created {}", relative.display());
+            }
+            if kind == generate::Kind::Migration {
+                println!("Complete SQL in BOTH database files before running make migrate.");
+            } else {
+                println!(
+                    "Rust modules registered. Implement the scaffold and wire routes, dependencies, or job dispatch explicitly."
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn report_environment(status: install::EnvironmentStatus) {
+    println!(
+        "{}",
+        match status {
+            install::EnvironmentStatus::Created =>
+                "Created .env with private permissions; no secrets are printed.",
+            install::EnvironmentStatus::KeyGenerated =>
+                "Generated a new JWT key in .env. Restart running processes to use it.",
+            install::EnvironmentStatus::Preserved =>
+                "Preserved existing .env settings and configured JWT key.",
+        }
+    );
+}
