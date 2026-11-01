@@ -25,6 +25,8 @@ jobs:
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Unit and HTTP contracts
         run: cargo test --locked --all-targets
+      - name: Rustdoc examples
+        run: cargo test --locked --doc
       - name: Compile PostgreSQL only
         run: cargo check --locked --all-targets --no-default-features --features postgres
       - name: Compile MySQL only
@@ -53,6 +55,12 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:8.0
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - name: Install pinned toolchain
@@ -65,3 +73,7 @@ jobs:
         env:
           TEST_DATABASE_URL: mysql://root:test-only@127.0.0.1:3306/rust_api_test
         run: make test-mysql
+      - name: Redis cache integration
+        env:
+          TEST_REDIS_URL: redis://127.0.0.1:6379/0
+        run: make test-redis

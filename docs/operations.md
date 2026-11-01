@@ -70,7 +70,8 @@ tambahkan policy bisnis sebelum deployment.
 - `/health`: liveness proses, tidak bergantung pada database.
 - `/ready`: koneksi database serta migration/checksum yang dibutuhkan binary;
   database belum dimigrasikan menghasilkan 503. Endpoint ini tidak memeriksa
-  SMTP atau keberadaan worker, dan tidak menggantikan pemeriksaan schema manual.
+  SMTP, Redis cache opsional, atau keberadaan worker, dan tidak menggantikan
+  pemeriksaan schema manual.
 - Logs JSON default, `LOG_FORMAT=pretty` untuk lokal, `RUST_LOG` untuk level.
 - Setiap response membawa `x-request-id`; span mencatat method, path dan ID.
   Query string, Authorization, password, DTO body, dan email recipient tidak
@@ -89,6 +90,47 @@ dideteksi oleh pemeriksaan checksum ini.
 Pantau jumlah pending/running/failed, umur job pending tertua, DB pool saturation,
 latency, response 5xx/429, serta restart worker. Integrasi OTLP/metrics backend
 belum dipasang; tracing dapat diteruskan dari stdout melalui collector deployment.
+
+## Redis cache
+
+`CACHE_DRIVER=none` adalah default. `CACHE_DRIVER=redis` membutuhkan URL Redis
+valid, tetapi koneksi dibuat saat operasi cache pertama. Redis yang tidak tersedia
+tidak mengubah readiness database; operasi eksplisit mengembalikan error dan
+`remember` memakai loader sebagai fallback. Pantau Redis sendiri bila cache
+dibutuhkan untuk memenuhi target latency aplikasi.
+
+Gunakan `REDIS_URL` untuk binary lokal dan `DOCKER_REDIS_URL` untuk aplikasi di
+Compose. Redis dapat berada di VM eksternal. Untuk TLS gunakan `rediss://` dengan
+certificate server yang dipercaya; query parameters/fragment termasuk bypass
+TLS ditolak. URL/password tidak boleh masuk log atau git. Instance development
+dari profile Compose `redis` tidak memakai autentikasi, dibatasi ke port loopback,
+dan tidak menyimpan snapshot/AOF. Konfigurasikan autentikasi serta jaringan secara
+terpisah untuk deployment nyata.
+
+Cache hanya untuk data yang dapat dibangun kembali. Tetapkan prefix berbeda
+untuk proyek/environment, sertakan tenant pada key bisnis, dan hapus key terkait
+setelah commit perubahan data. Cache tidak menggantikan pemeriksaan permission.
+Ketika Redis timeout, status write/delete mungkin belum diketahui; konsistensi
+kuat memerlukan rancangan di lapisan domain, bukan hanya TTL.
+
+Reconnect jaringan memakai connection manager yang sama. Kegagalan handshake
+pertama dapat dicoba ulang, tetapi error handshake non-I/O pada reconnect setelah
+koneksi pernah berhasil dapat dipertahankan redis-rs 1.8.1. Setelah perubahan
+kredensial/ACL atau perbaikan handshake reconnect (`AUTH`/ACL/`SELECT`), perbarui
+konfigurasi dan restart proses aplikasi untuk membuat manager baru. Selama cache
+gagal, `remember` tetap menggunakan loader.
+
+Backend membaca value melalui script Lua kecil yang memeriksa ukuran di Redis
+sebelum mengirim payload. Jika memakai ACL terbatas, izinkan operasi yang dipakai
+driver (`EVAL`, `STRLEN`, `GET`, `SET`, `DEL`, `PING`) beserta handshake redis-rs
+seperti `AUTH`, `SELECT`, dan `CLIENT SETINFO` sesuai konfigurasi. Batasi key
+pattern ke prefix aplikasi dan uji reconnect dengan ACL tersebut. Driver tidak
+menyediakan perintah flush global.
+
+Worker bawaan tetap menggunakan queue SQL. Jika queue Redis ditambahkan, gunakan
+instance Redis tersendiri dari cache: eviction dan batas memori berlaku per
+instance, sehingga pemisahan nomor logical database saja tidak mengisolasinya.
+Lihat [panduan cache](cache.md) untuk API penggunaan dan rancangan outbox/worker.
 
 ## Pemeriksaan queue
 

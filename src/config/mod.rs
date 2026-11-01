@@ -1,6 +1,8 @@
+pub mod cache;
 pub mod database;
 
 use anyhow::{Context, ensure};
+use cache::CacheConfig;
 use database::DatabaseConfig;
 use serde::Deserialize;
 
@@ -8,6 +10,7 @@ use serde::Deserialize;
 pub struct Settings {
     pub app: AppConfig,
     pub database: DatabaseConfig,
+    pub cache: CacheConfig,
     pub jwt: JwtConfig,
     pub cors: CorsConfig,
     pub queue: QueueConfig,
@@ -85,6 +88,12 @@ struct RawSettings {
     db_min_connections: u32,
     db_acquire_timeout_secs: u64,
     db_idle_timeout_secs: u64,
+    cache_driver: String,
+    redis_url: String,
+    cache_prefix: String,
+    cache_default_ttl_secs: u64,
+    cache_timeout_ms: u64,
+    cache_max_value_bytes: usize,
     jwt_secret: String,
     jwt_issuer: String,
     jwt_audience: String,
@@ -123,6 +132,12 @@ impl Default for RawSettings {
             db_min_connections: 1,
             db_acquire_timeout_secs: 5,
             db_idle_timeout_secs: 300,
+            cache_driver: "none".into(),
+            redis_url: String::new(),
+            cache_prefix: "rust-api-skeleton:cache:".into(),
+            cache_default_ttl_secs: 300,
+            cache_timeout_ms: 500,
+            cache_max_value_bytes: 1_048_576,
             jwt_secret: String::new(),
             jwt_issuer: "rust-api-skeleton".into(),
             jwt_audience: "rust-api-clients".into(),
@@ -192,6 +207,14 @@ impl Settings {
                 audience: raw.jwt_audience,
                 ttl_secs: raw.jwt_ttl_secs,
             },
+            cache: CacheConfig {
+                driver: raw.cache_driver.parse().context("invalid CACHE_DRIVER")?,
+                redis_url: raw.redis_url,
+                prefix: raw.cache_prefix,
+                default_ttl_secs: raw.cache_default_ttl_secs,
+                timeout_ms: raw.cache_timeout_ms,
+                max_value_bytes: raw.cache_max_value_bytes,
+            },
             cors: CorsConfig {
                 allowed_origins: raw
                     .cors_allowed_origins
@@ -227,6 +250,7 @@ impl Settings {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         self.database.validate()?;
+        self.cache.validate()?;
         ensure!(
             self.app.host.parse::<std::net::IpAddr>().is_ok(),
             "APP_HOST must be an IP address"
@@ -430,5 +454,62 @@ mod tests {
             .unwrap();
         let error = Settings::from_config(source).err().unwrap().to_string();
         assert!(!error.contains("secret-value"));
+    }
+
+    #[test]
+    fn rejects_invalid_cache_configuration_without_echoing_source_values() {
+        let driver = if cfg!(feature = "postgres") {
+            "postgres"
+        } else {
+            "mysql"
+        };
+        let database_url = format!("{driver}://test:test@localhost/test");
+        for (name, value) in [
+            ("cache_driver", "unsupported-secret-value"),
+            ("cache_prefix", "invalid prefix secret-value"),
+            ("cache_default_ttl_secs", "0"),
+            ("cache_timeout_ms", "0"),
+            ("cache_max_value_bytes", "0"),
+        ] {
+            let source = config::Config::builder()
+                .set_override("db_driver", driver)
+                .unwrap()
+                .set_override("database_url", database_url.clone())
+                .unwrap()
+                .set_override("jwt_secret", "test-only-key-longer-than-thirty-two-bytes")
+                .unwrap()
+                .set_override(name, value)
+                .unwrap()
+                .build()
+                .unwrap();
+            let error = Settings::from_config(source)
+                .err()
+                .unwrap_or_else(|| panic!("accepted invalid {name}"));
+            assert!(!format!("{error:#}").contains("secret-value"));
+        }
+    }
+
+    #[test]
+    fn redis_cache_requires_an_explicit_url() {
+        let driver = if cfg!(feature = "postgres") {
+            "postgres"
+        } else {
+            "mysql"
+        };
+        let source = config::Config::builder()
+            .set_override("db_driver", driver)
+            .unwrap()
+            .set_override(
+                "database_url",
+                format!("{driver}://test:test@localhost/test"),
+            )
+            .unwrap()
+            .set_override("jwt_secret", "test-only-key-longer-than-thirty-two-bytes")
+            .unwrap()
+            .set_override("cache_driver", "redis")
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(Settings::from_config(source).is_err());
     }
 }

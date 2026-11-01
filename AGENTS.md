@@ -14,6 +14,9 @@
   credentials, or raw request payloads. Validation errors must omit rejected values.
 - New users are role `user`. Authorization reads the current database record.
   Add explicit policy checks for new endpoints; authentication alone is not authorization.
+- Cache only reproducible data through the cache facade. Include environment and
+  tenant scope in namespaces/keys, use bounded TTLs, and define invalidation behavior.
+  Optional cache failure must not change authorization or transactional queue semantics.
 - Preserve the user+welcome-job transaction. Domain writes and associated durable
   jobs must commit atomically when the business operation requires both.
 - Queue handlers must tolerate at-least-once execution. ACK/retry must preserve
@@ -27,5 +30,8 @@
 - Run `make check` before proposing changes. Run both real-database suites when
   changing SQL, migrations, auth/repository integration, or queue behavior. Report
   unrun checks honestly; ignored tests are not evidence of integration success.
+- Run `make test-redis` on a disposable Redis instance for cache-driver changes.
+  Preserve timeout, payload-size and secret-sanitization boundaries; never flush
+  unrelated Redis keys in tests or application cache helpers.
 - Never commit `.env`, generated credentials, build outputs, or local test data.
   Preserve `Cargo.lock` and the pinned toolchain for reproducible builds.

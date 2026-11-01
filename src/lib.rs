@@ -4,6 +4,7 @@
 compile_error!("enable at least one database feature: postgres or mysql");
 
 pub mod bootstrap;
+pub mod cache;
 pub mod config;
 pub mod database;
 pub mod domain;

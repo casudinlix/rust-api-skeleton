@@ -10,6 +10,7 @@ x-app: &app
   env_file: .env
   environment:
     DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
+    REDIS_URL: ${DOCKER_REDIS_URL:-}
     APP_HOST: 0.0.0.0
   restart: unless-stopped
   read_only: true
@@ -50,6 +51,27 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+
+  # Disposable development cache only; production Redis is configured separately.
+  redis:
+    image: redis:8.0
+    profiles: [redis]
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 20
 
   migrate:
     <<: *app

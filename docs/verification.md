@@ -116,3 +116,74 @@ reported in that targeted re-review.
   guarantee of GitHub runner availability, credit balance, or remote CI outcome.
 - Async shutdown is bounded; already-running Tokio blocking password tasks may
   delay runtime exit. Orchestrator force-stop remains the ultimate process bound.
+
+## Redis cache extension — 1 November 2026
+
+The initial verification record above describes the original skeleton. The
+following checks were executed after adding optional Redis caching; these are the
+current test counts for the extended implementation.
+
+Environment: redis-rs **1.8.1**, Redis server **8.0.5**, PostgreSQL **16.15**, MySQL
+**8.0.46**, and the same Rust/Axum/SQLx versions recorded above. Redis ran as an
+isolated loopback instance with test-only authentication and no persistence.
+
+| Check | Result |
+|---|---|
+| `make check`: formatting and Clippy with warnings denied | Passed |
+| Unit tests | 63 passed |
+| HTTP contract tests | 9 passed |
+| Rustdoc usage example | 1 passed (compilation) |
+| PostgreSQL-only and MySQL-only compilation | Both passed |
+| `make test-postgres` | API, queue and repository suites passed |
+| `make test-mysql` | API, queue and repository suites passed |
+| `make test-redis` | All 7 Redis integration tests passed |
+| `cargo build --locked --release --bins` | Passed; optimized binaries rebuilt |
+| Compose/CI YAML and relative documentation links | Passed |
+
+The ordinary unit/HTTP command ignores 13 network integration tests; all 13 were
+then executed explicitly. Total: **85 named unit/integration tests**, plus the
+compiled rustdoc example. No ignored test is counted as executed.
+
+### Redis behaviors verified
+
+- Default disabled caching creates no connection and retains normal loader behavior.
+- Redis construction requires neither a Tokio runtime nor a reachable server.
+- Typed JSON round trips, misses, stored `null`, prefix separation, overwrite,
+  mandatory default/override TTL, actual expiry, and single-key deletion.
+- Invalid key/TTL/configuration rejection, bounded JSON serialization, atomic
+  Redis-side read-size checks, malformed payload handling, and sanitized errors.
+- `remember` serves hits, does not cache loader errors, and preserves successful
+  loader results when Redis reads or writes fail.
+- Deadlines cover backend read/write/delete/ping operations; connection refusal,
+  silent peers and authentication failures remain bounded.
+- A test-owned TCP proxy drops an established connection; the same Cache instance
+  reconnects and retrieves its existing value. The Redis server is not restarted.
+- Initial authentication failure recovers after a uniquely named test ACL user
+  is created. That ACL user is removed by the test; global flush is never used.
+- Existing API authorization, database readiness and transactional SQL queue
+  regression suites pass with the additional cache wiring.
+
+An independent review found that storing an unconnected lazy manager could retain
+an initial authentication failure. A failing regression reproduced the problem.
+The implementation now awaits the first successful connection inside the lazy
+initializer before retaining the manager, and the regression passes. Final review
+reported no remaining blocking finding.
+
+### Scope and remaining verification limits
+
+This change implements a cache driver. Redis queue transport, SQL outbox relay and
+Redis-backed worker dispatch are not implemented; the existing DatabaseQueue is
+unchanged. No user, role, password hash or JWT is automatically cached.
+
+The Redis integration endpoint used `redis://`. `rediss://` support and rejection
+of insecure options are configured/tested at the URL layer, but a real TLS
+handshake was not exercised. Docker execution, production load and real SMTP
+delivery remain unverified. The earlier native multi-process smoke test describes
+the initial skeleton and was not repeated for this cache-only extension.
+
+As documented in `docs/cache.md`, credential/ACL/SELECT handshake corrections
+after an established manager's reconnect may require recreating Cache or restarting
+the process with redis-rs 1.8.1. `remember` continues to use its loader during the
+failure. This is distinct from the initial authentication and ordinary network
+recovery scenarios exercised above. CI now includes Redis; remote run results are
+reported by GitHub separately from this local verification record.

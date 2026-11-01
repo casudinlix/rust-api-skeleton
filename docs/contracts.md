@@ -5,7 +5,7 @@ behavior is documented in README; update this file when an interface changes.
 
 ## Configuration, errors and HTTP
 
-`config::Settings` (Clone) has `app: AppConfig`, `database: DatabaseConfig`,
+`config::Settings` (Clone) has `app: AppConfig`, `database: DatabaseConfig`, `cache: CacheConfig`,
 `jwt: JwtConfig`, `cors: CorsConfig`, `queue: QueueConfig`,
 `scheduler: SchedulerConfig`, `mail: MailConfig`.
 
@@ -30,7 +30,7 @@ behavior is documented in README; update this file when an interface changes.
   validation errors are 422, invalid JSON 400, unsupported media 415, large body 413.
 - `utils::shutdown::shutdown_signal() -> impl Future<Output = ()>`.
 - `state::AppState`: `settings: Arc<Settings>`, `database: DatabasePool`,
-  `auth_service: Arc<AuthService>`, `user_service: Arc<UserService>`,
+  `cache: Arc<Cache>`, `auth_service: Arc<AuthService>`, `user_service: Arc<UserService>`,
   `queue: Arc<DatabaseQueue>`, plus HTTP auth-rate limiter as needed.
 
 ## Persistence
@@ -62,6 +62,27 @@ behavior is documented in README; update this file when an interface changes.
   `id, kind, payload, deduplication_key` only (other fields have defaults).
   UUID stored native PG/string MySQL. `kind='send_welcome_email'`,
   `payload={"user_id":"<UUID>"}` via SQLx Json, deduplication_key=`welcome:<uuid>`.
+
+## Optional cache
+
+- `config::cache::CacheDriver` None|Redis, FromStr, Display, Clone Copy.
+- `CacheConfig` Clone: `driver: CacheDriver`, `redis_url: String`, `prefix: String`,
+  `default_ttl_secs: u64`, `timeout_ms: u64`, `max_value_bytes: usize`.
+  `validate() -> anyhow::Result<()>` never includes raw URLs in errors.
+- `cache::Cache` Clone: synchronous `from_config(&CacheConfig) -> CacheResult<Self>`
+  and `with_store(&CacheConfig, Arc<dyn CacheStore>) -> CacheResult<Self>`.
+- Async JSON operations: `get<T>(key) -> CacheResult<Option<T>>`,
+  `put<T>(key, &value, Option<Duration>) -> CacheResult<()>`,
+  `forget(key) -> CacheResult<bool>`, `ping() -> CacheResult<()>`.
+- Async `remember<T,E,F,Fut>(key, Option<Duration>, loader) -> Result<T,E>` uses
+  cached data when available, otherwise invokes the loader and best-effort writes.
+  Loader errors are propagated and never cached; concurrent misses are not locked.
+- `CacheStore: Send + Sync` is the object-safe async byte backend. It receives
+  prefixed keys and a read-size bound; implementations must enforce that bound.
+- Redis reads are size-guarded with Lua; writes use SET with PX expiration.
+  Disabled caching never opens a connection or persists values.
+- Cache is opt-in, disposable data. Auth reads the live database; SQL queue behavior
+  and database readiness are independent of optional Redis availability.
 
 ## Identity and services
 
@@ -114,7 +135,9 @@ behavior is documented in README; update this file when an interface changes.
 
 ## Verification
 
-Run `make check` for formatting, clippy, unit/HTTP tests, and the driver matrix.
+Run `make check` for formatting, clippy, unit/HTTP tests, rustdoc examples, and the driver matrix.
 Run `make test-postgres` and `make test-mysql` with TEST_DATABASE_URL pointing to
 isolated disposable databases for changes touching SQL, migrations or queue behavior.
+Run `make test-redis` with TEST_REDIS_URL for cache-driver changes; use a disposable
+Redis instance and per-test namespaces, never global flush operations.
 See `docs/verification.md` for the actual verification record and its limits.

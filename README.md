@@ -11,6 +11,7 @@ database yang sama, sehingga job tetap tersedia setelah proses restart.
 
 - Axum 0.8, Tokio, SQLx 0.8.6, Rust 2024 edition.
 - PostgreSQL dan MySQL: default build memuat kedua driver; bisa build satu driver.
+- Cache Redis opsional: JSON, TTL, namespace, timeout, dan helper `remember`.
 - Register/login JWT HS256, Argon2id, current-user guard, admin guard.
 - CRUD user untuk admin, profile sendiri untuk user, cursor pagination.
 - Normalisasi sebelum validasi, JSON envelope, error terpusat, CORS allowlist.
@@ -21,7 +22,7 @@ database yang sama, sehingga job tetap tersedia setelah proses restart.
 - Scheduler UTC dengan deduplikasi maintenance per menit; welcome email via SMTP
   atau transport `log` untuk development.
 - `/health`, `/ready`, explicit migration binary, non-root Docker image,
-  development Compose, Makefile, dan CI dengan kedua database.
+  development Compose, Makefile, dan CI untuk kedua database serta cache Redis.
 
 ## 1. Menjalankan secara lokal
 
@@ -264,12 +265,19 @@ catch-up memerlukan pencatatan occurrence tersendiri.
 Lihat [Panduan operasi](docs/operations.md) untuk status queue, retry manual,
 TLS database, reverse proxy, dan deployment.
 
+**Apakah worker bisa memakai Redis?** Bisa, sebagai cache di handler atau sebagai
+backend queue yang diimplementasikan tersendiri. Worker bawaan saat ini tetap
+memakai `DatabaseQueue`. `CACHE_DRIVER=redis` mengaktifkan fasilitas cache dan
+tidak memindahkan job ke Redis. Rancangan queue Redis yang mempertahankan transaksi
+user + job dijelaskan dalam [panduan cache dan Redis worker](docs/cache.md#redis-untuk-worker).
+
 ## 5. Struktur kode dan cara menambah modul
 
 | Lapisan | Lokasi | Tanggung jawab |
 |---|---|---|
 | Configuration | `src/config/` | Env, driver, validasi setting |
 | Database | `src/database/` | Pool, UTC session, ping, migration |
+| Cache | `src/cache/` | Facade JSON, backend Redis/none, TTL, fallback |
 | Domain | `src/domain/models/`, `src/domain/dtos/` | Model internal dan payload API |
 | Repository | `src/repositories/` | Trait + adapter PostgreSQL/MySQL |
 | Service | `src/services/` | Business logic, auth, pagination |
@@ -324,8 +332,8 @@ make check
 ```
 
 Perintah tersebut menjalankan format check, clippy dengan warning sebagai error,
-unit/HTTP tests, lalu compile PostgreSQL-only dan MySQL-only. `Cargo.lock` disertakan
-dan semua build/test memakai `--locked`.
+unit/HTTP tests dan contoh rustdoc, lalu compile PostgreSQL-only dan MySQL-only.
+`Cargo.lock` disertakan dan semua build/test memakai `--locked`.
 
 Integration suites ditandai ignored supaya unit tests tidak membutuhkan DB.
 Jalankan secara eksplisit dengan **database disposable**, dan akun test yang
@@ -334,6 +342,7 @@ memiliki izin membuat/menghapus database untuk isolasi queue tests:
 ```bash
 TEST_DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/rust_api_test' make test-postgres
 TEST_DATABASE_URL='mysql://root:password@127.0.0.1:3306/rust_api_test' make test-mysql
+TEST_REDIS_URL='redis://127.0.0.1:6379/0' make test-redis
 ```
 
 Suite menguji migration, UTC, CRUD, duplicate race, transaction rollback,
@@ -341,9 +350,44 @@ pagination dengan timestamp yang sama, HTTP auth/role, multi-worker claims,
 expired leases, stale ACK/retry, retry exhaustion, dan deduplikasi. Akun produksi
 tidak memerlukan privilege membuat database untuk menjalankan aplikasi.
 
+Redis tests memakai namespace acak dan menghapus key miliknya sendiri, tanpa
+`FLUSHDB`/`FLUSHALL`. Gunakan endpoint plaintext `redis://` pada instance disposable;
+akun test membutuhkan `ACL SETUSER`/`ACL DELUSER` untuk satu user test bernama acak,
+dan proses test perlu dapat membuka listener loopback. Hak tersebut tidak
+diperlukan oleh akun aplikasi produksi. Live Redis tests ditandai ignored dan
+dijalankan secara eksplisit oleh `make test-redis` serta job CI integrasi.
+
 Detail hasil yang benar-benar dijalankan tersedia di
-[verification.md](docs/verification.md). Workflow CI juga menguji PostgreSQL 16
-dan MySQL 8.4; status CI GitHub bergantung pada runner/kredit repository.
+[verification.md](docs/verification.md). Workflow CI dikonfigurasi untuk PostgreSQL
+16, MySQL 8.4, dan Redis 8.0; statusnya bergantung pada hasil runner repository.
+
+## 8. Cache Redis
+
+Cache default adalah `none`, sehingga aplikasi tidak membutuhkan Redis. Untuk
+mengaktifkannya pada aplikasi lokal, isi `.env`:
+
+```dotenv
+CACHE_DRIVER=redis
+REDIS_URL=redis://127.0.0.1:6379/0
+CACHE_PREFIX=rust-api-skeleton:cache:
+CACHE_DEFAULT_TTL_SECS=300
+CACHE_TIMEOUT_MS=500
+CACHE_MAX_VALUE_BYTES=1048576
+```
+
+Jalankan `make docker-cache` untuk menyediakan Redis development. Aplikasi dalam
+Compose memakai `DOCKER_REDIS_URL=redis://redis:6379/0`; ganti URL tersebut jika
+Redis ada di VM eksternal. Profile Redis memakai cache disposable dengan batas
+memori 128 MiB dan eviction `allkeys-lru`.
+
+Service dapat menerima `state.cache.clone()` dan menggunakan `get`, `put`,
+`forget`, atau `remember`. `remember` menjalankan loader ketika key tidak ada
+atau Redis bermasalah, lalu mencoba menyimpan hasil yang berhasil. Semua write
+memakai TTL. Autentikasi dan pembacaan user bawaan tetap menggunakan database;
+caching data bisnis ditambahkan secara eksplisit oleh service.
+
+Lihat [docs/cache.md](docs/cache.md) untuk contoh Rust, invalidation, TLS,
+batas konfigurasi, dan perbedaan cache dengan queue Redis.
 
 ## Referensi stack
 
@@ -354,3 +398,4 @@ dan MySQL 8.4; status CI GitHub bergantung pada runner/kredit repository.
 - [PostgreSQL locking SELECT](https://www.postgresql.org/docs/current/sql-select.html)
 - [MySQL locking reads](https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html)
 - [tokio-cron-scheduler](https://docs.rs/tokio-cron-scheduler/0.15.1/tokio_cron_scheduler/)
+- [redis-rs](https://docs.rs/redis/1.8.1/redis/)
