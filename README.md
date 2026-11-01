@@ -7,6 +7,14 @@ dan task scheduler. PostgreSQL dan MySQL didukung oleh satu codebase melalui SQL
 API, worker, dan scheduler berjalan sebagai proses terpisah. Queue disimpan dalam
 database yang sama, sehingga job tetap tersedia setelah proses restart.
 
+## Aturan agent dan desain sistem
+
+Agent wajib mengikuti [AGENTS.md](AGENTS.md) dan
+[standar desain sistem](docs/system-design-rules.md): clean code, query tanpa N+1,
+kolom SELECT eksplisit, cursor pagination, PK `<entitas>_id` dengan UUIDv7, serta
+desain query/indeks dan migration sebelum implementasi fitur. Dokumen tersebut
+juga mencatat penyesuaian legacy yang masih diperlukan pada kode saat ini.
+
 ## Fitur
 
 - Axum 0.8, Tokio, SQLx 0.8.6, Rust 2024 edition.
