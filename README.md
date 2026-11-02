@@ -37,6 +37,8 @@ untuk perubahan skema, kontrak API/cursor, bukti indeks, dan upgrade data lama.
   per process, dan custom structured target melalui `tracing`.
 - Listener observability terpisah per process dengan liveness, readiness,
   Prometheus text metrics, DB-pool gauges, serta worker/relay/scheduler counters.
+- Swagger/OpenAPI 3.1 opsional, default OFF, runtime-toggle melalui environment,
+  Bearer JWT scheme, cursor/error examples, dan route docs yang tidak ada saat disabled.
 - Transaksi atomik user + welcome job, leased queue claims, retry/backoff,
   stale-worker fencing, dan penyimpanan failed jobs.
 - Scheduler UTC dengan deduplikasi maintenance per menit; welcome email via SMTP
@@ -118,6 +120,15 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail http://127.0.0.1:3000/ready
 ```
 
+Swagger default tidak diregistrasikan. Untuk development:
+
+```dotenv
+SWAGGER_ENABLED=true
+```
+
+Buka `http://127.0.0.1:3000/docs`; spec mentah tersedia di
+`/api-docs/openapi.json`.
+
 Migration tidak berjalan otomatis ketika API/worker/relay/scheduler boot. Jalankan
 `migrate` sebagai langkah deployment sebelum menjalankan atau mengganti service.
 Binary `migrate` hanya menerapkan migration maju; tidak menyediakan reset database
@@ -126,7 +137,8 @@ atau rollback destruktif otomatis.
 Lihat [panduan command development](docs/development.md) untuk generator,
 penambahan package, rotasi key, dan contoh alur membuat fitur. Filesystem,
 `storage:link`, static assets, file logging, rotation, dan custom log dijelaskan di
-[panduan filesystem/logging](docs/filesystem.md). Untuk module
+[panduan filesystem/logging](docs/filesystem.md). Swagger/OpenAPI opsional
+dijelaskan di [panduan Swagger](docs/swagger.md). Untuk module
 pertama, gunakan [starter pattern](docs/module-init.md) dan source yang dapat
 dikompilasi di [examples/module_init.rs](examples/module_init.rs).
 

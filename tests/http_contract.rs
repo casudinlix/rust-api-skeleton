@@ -10,6 +10,10 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 fn app(limit: u32) -> Router {
+    app_with_swagger(limit, false)
+}
+
+fn app_with_swagger(limit: u32, swagger_enabled: bool) -> Router {
     let (driver, url) = if cfg!(feature = "postgres") {
         ("postgres", "postgres://test:test@127.0.0.1:9/test")
     } else {
@@ -26,6 +30,8 @@ fn app(limit: u32) -> Router {
             .set_override("auth_requests_per_minute", limit)
             .unwrap()
             .set_override("db_acquire_timeout_secs", 1)
+            .unwrap()
+            .set_override("swagger_enabled", swagger_enabled)
             .unwrap()
             .build()
             .unwrap(),
@@ -67,6 +73,55 @@ async fn request(
     let bytes = to_bytes(response.into_body(), 100_000).await.unwrap();
     let json = serde_json::from_slice(&bytes).unwrap();
     (status, headers, json)
+}
+
+#[tokio::test]
+async fn swagger_routes_are_absent_when_disabled() {
+    for path in ["/docs", "/api-docs/openapi.json"] {
+        let (status, _, body) = request(app(20), "GET", path, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["success"], false);
+    }
+}
+
+#[tokio::test]
+async fn swagger_ui_and_openapi_document_are_available_when_enabled() {
+    let spec_response = app_with_swagger(20, true)
+        .oneshot(
+            Request::get("/api-docs/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(spec_response.status(), StatusCode::OK);
+    assert_eq!(
+        spec_response.headers()[header::CONTENT_TYPE],
+        "application/json"
+    );
+    let spec_bytes = to_bytes(spec_response.into_body(), 200_000).await.unwrap();
+    let spec: Value = serde_json::from_slice(&spec_bytes).unwrap();
+    assert_eq!(spec["openapi"], "3.1.0");
+    assert!(spec["paths"]["/api/v1/auth/login"]["post"].is_object());
+    assert_eq!(
+        spec["components"]["securitySchemes"]["bearerAuth"]["scheme"],
+        "bearer"
+    );
+
+    let ui_response = app_with_swagger(20, true)
+        .oneshot(Request::get("/docs").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(ui_response.status(), StatusCode::OK);
+    assert!(ui_response.headers()[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("text/html"));
+    let ui = to_bytes(ui_response.into_body(), 100_000).await.unwrap();
+    let ui = String::from_utf8(ui.to_vec()).unwrap();
+    assert!(ui.contains("/api-docs/openapi.json"));
+    assert!(ui.contains("persistAuthorization: false"));
+    assert!(ui.contains("swagger-ui-bundle.js"));
 }
 
 #[tokio::test]

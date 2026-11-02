@@ -118,6 +118,18 @@ items + next_cursor
 Handler yang mengubahnya menjadi `response::cursor`. Dengan begitu semua domain
 mendapat bentuk API yang identik tanpa membuat pagination envelope sendiri.
 
+## Swagger/OpenAPI untuk route baru
+
+Jika module menambah endpoint publik, update `src/swagger/mod.rs` pada change
+yang sama. Tambahkan path/method, `operationId` stabil, request/response schema,
+status error aktual, dan `bearerAuth` bila route protected.
+
+Contoh customer detail memakai `customers.show` dan
+`#/components/schemas/CustomerEnvelope`. Response schema tetap harus mengikuti
+`response::success(...)`; list harus mengikuti `response::cursor(...)`.
+Jangan menambahkan field dokumentasi yang tidak ada pada DTO runtime. Lihat
+[swagger.md](swagger.md) untuk contoh lengkap.
+
 ## Bila module menyimpan file
 
 Gunakan storage global dari `AppState`:

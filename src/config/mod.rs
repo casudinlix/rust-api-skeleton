@@ -4,6 +4,7 @@ pub mod filesystem;
 pub mod logging;
 pub mod observability;
 pub mod queue;
+pub mod swagger;
 
 pub use queue::{QueueConfig, QueueDriver, RedisQueueConfig};
 
@@ -13,6 +14,7 @@ use database::DatabaseConfig;
 use filesystem::FilesystemConfig;
 use logging::LoggingConfig;
 use observability::ObservabilityConfig;
+use swagger::SwaggerConfig;
 use serde::Deserialize;
 
 #[derive(Clone)]
@@ -28,6 +30,7 @@ pub struct Settings {
     pub scheduler: SchedulerConfig,
     pub mail: MailConfig,
     pub observability: ObservabilityConfig,
+    pub swagger: SwaggerConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -98,6 +101,10 @@ struct RawSettings {
     observability_worker_port: u16,
     observability_scheduler_port: u16,
     observability_relay_port: u16,
+    swagger_enabled: bool,
+    swagger_ui_path: String,
+    swagger_openapi_path: String,
+    swagger_asset_base_url: String,
     db_driver: String,
     database_url: String,
     db_max_connections: u32,
@@ -161,6 +168,11 @@ impl Default for RawSettings {
             observability_worker_port: 9101,
             observability_scheduler_port: 9102,
             observability_relay_port: 9103,
+            swagger_enabled: false,
+            swagger_ui_path: "/docs".into(),
+            swagger_openapi_path: "/api-docs/openapi.json".into(),
+            swagger_asset_base_url:
+                "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6".into(),
             db_driver: "postgres".into(),
             database_url: String::new(),
             db_max_connections: 10,
@@ -255,6 +267,12 @@ impl Settings {
                 scheduler_port: raw.observability_scheduler_port,
                 relay_port: raw.observability_relay_port,
             },
+            swagger: SwaggerConfig {
+                enabled: raw.swagger_enabled,
+                ui_path: raw.swagger_ui_path,
+                openapi_path: raw.swagger_openapi_path,
+                asset_base_url: raw.swagger_asset_base_url,
+            },
             filesystem: FilesystemConfig {
                 root: raw.filesystem_root.into(),
                 max_file_bytes: raw.filesystem_max_file_bytes,
@@ -336,6 +354,7 @@ impl Settings {
         self.filesystem.validate()?;
         self.logging.validate()?;
         self.observability.validate()?;
+        self.swagger.validate()?;
         ensure!(
             [
                 self.observability.api_port,
@@ -502,6 +521,24 @@ mod tests {
 
         s.logging.file_prefix = "app".into();
         s.logging.max_files = 14;
+        s.validate().unwrap();
+    }
+
+    #[test]
+    fn swagger_is_disabled_by_default_and_paths_are_validated() {
+        let mut s = settings();
+        assert!(!s.swagger.enabled);
+        s.swagger.ui_path = "../ignored-while-disabled".into();
+        s.swagger.asset_base_url.clear();
+        s.validate().unwrap();
+
+        s.swagger.enabled = true;
+        s.swagger.ui_path = "/api/v1/docs".into();
+        assert!(s.validate().is_err());
+        s.swagger.ui_path = "/docs".into();
+        s.swagger.openapi_path = "/api-docs/openapi.json".into();
+        s.swagger.asset_base_url =
+            "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6".into();
         s.validate().unwrap();
     }
 

@@ -18,6 +18,9 @@ behavior is documented in README; update this file when an interface changes.
   `visibility_timeout_secs: u64`, `job_timeout_secs: u64`, `max_attempts: u32`,
   `retry_base_secs: u64`, `concurrency: usize`, `redis: RedisQueueConfig`,
   `relay_enabled: bool`. Redis queue configuration is independent of cache.
+- SwaggerConfig: `enabled: bool`, `ui_path: String`, `openapi_path: String`,
+  `asset_base_url: String`. Default disabled; enabled docs register only the two
+  configured infrastructure routes and never alter business route auth.
 - SchedulerConfig: `maintenance_cron: String`, `retention_days: u32`.
 - MailConfig: `transport: String` (log|smtp), `from: String`, `smtp_host: String`,
   `smtp_port: u16`, `smtp_username: String`, `smtp_password: String`.
@@ -55,6 +58,10 @@ behavior is documented in README; update this file when an interface changes.
 - `logging` owns stdout/file/both tracing setup. File names are process-specific,
   rotation is never/hourly/daily, retention is bounded, and the bootstrap-held
   `LogGuard` flushes the bounded writer during normal shutdown.
+- `swagger::openapi_document()` is the explicit OpenAPI 3.1 contract for current
+  reference routes. Swagger routes are infrastructure exceptions to the business
+  success/error envelope; when disabled they are absent and fall through to the
+  normal 404 envelope. Protected operations declare `bearerAuth`.
 - `observability::ProcessProbe` owns process readiness plus the shared metrics
   registry. Bootstrap runs a separate observability listener for API/worker/
   scheduler/relay. `/ready` requires exact DB migration readiness plus process

@@ -29,6 +29,11 @@ generator tidak mengalahkan aturan ini.
   manual, membuat envelope endpoint sendiri, menaruh cursor di dalam `data`,
   atau mengirim `data:null` pada error. Helper ini milik boundary HTTP; service
   dan domain tidak boleh bergantung pada Axum response/status.
+- Setiap endpoint API publik yang ditambah/diubah WAJIB memperbarui
+  `src/swagger/mod.rs` dalam change yang sama: path/method, operationId unik,
+  request/query/path schema, success envelope, error status aktual, security,
+  cursor metadata, dan example aman. Swagger/OpenAPI adalah acceptance criterion,
+  bukan dokumentasi yang boleh ditunda.
 
 ## 2. Desain database dan migration sebelum fitur
 
@@ -194,6 +199,15 @@ generator tidak mengalahkan aturan ini.
 - Keep the skeleton domain-neutral. Do not add project-specific RBAC, tenancy,
   audit-domain tables, or business permissions to the generic skeleton unless a
   concrete downstream project requires them.
+- Swagger default tetap OFF. Saat `SWAGGER_ENABLED=false`, UI dan OpenAPI route
+  harus benar-benar tidak diregistrasikan. Protected operation wajib mendeklarasikan
+  `bearerAuth`; schema tidak boleh memuat password_hash, credential, DSN, internal
+  queue/lease fields, atau example yang berasal dari data nyata. Swagger docs adalah
+  infrastructure route dan tidak memakai business response envelope.
+- OpenAPI list wajib mencerminkan cursor pagination yang sama dengan runtime.
+  Dilarang mendokumentasikan page/offset, total-count, field, status, atau filter
+  yang tidak benar-benar didukung endpoint. Example password/token hanya placeholder
+  palsu dan Swagger UI tidak boleh mempersist authorization secara default.
 - Preserve stdout/file logging semantics, per-process filenames, bounded channel,
   configured rotation/retention, and bootstrap-held log guard. Container default
   remains stdout; file logging requires writable persistent storage. Multiple

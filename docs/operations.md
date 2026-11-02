@@ -86,6 +86,18 @@ Registrasi publik merupakan contoh default. Bila produk Anda hanya menyediakan
 akun undangan atau provisioning internal, hapus route public register atau
 tambahkan policy bisnis sebelum deployment.
 
+## Swagger/OpenAPI exposure
+
+Swagger default OFF dan route docs tidak didaftarkan. Bila docs perlu hidup di
+staging/production, set `SWAGGER_ENABLED=true` secara eksplisit dan batasi
+`SWAGGER_UI_PATH` serta `SWAGGER_OPENAPI_PATH` melalui reverse proxy/VPN bila
+kontrak API tidak publik. Swagger UI dapat menjalankan request nyata menggunakan
+Bearer token yang dimasukkan operator, jadi docs bukan sekadar halaman statis.
+
+Asset UI dimuat oleh browser dari `SWAGGER_ASSET_BASE_URL`; API server tidak
+menghubungi CDN. Untuk network tertutup gunakan mirror HTTPS internal. Detail ada
+di [panduan Swagger](swagger.md).
+
 ## Health dan observability
 
 API tetap menyediakan `/health` dan `/ready` pada port aplikasi. Selain itu,

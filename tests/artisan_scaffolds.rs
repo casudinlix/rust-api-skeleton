@@ -87,6 +87,7 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
         "crate::response::success/created/cursor",
         "examples/module_init.rs",
         "docs/module-init.md",
+        "src/swagger/mod.rs",
     ] {
         assert!(
             controller.contains(required),

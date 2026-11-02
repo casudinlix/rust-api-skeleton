@@ -20,6 +20,7 @@ use crate::{
         cors, observe_http, rate_limit::auth_rate_limit, request_deadline, security_headers,
     },
     state::AppState,
+    swagger,
 };
 
 /// Equivalent to Laravel's routes/api.php: HTTP declarations only.
@@ -58,10 +59,16 @@ pub fn router(state: AppState) -> anyhow::Result<Router> {
         .layer(CompressionLayer::new())
         .layer(middleware::from_fn_with_state(state.clone(), request_deadline));
 
-    Ok(Router::new()
+    let mut root = Router::new()
         .route("/health", get(health_handler::health))
         .route("/ready", get(health_handler::ready))
-        .nest("/api/v1", api)
+        .nest("/api/v1", api);
+
+    if state.settings.swagger.enabled {
+        root = root.merge(swagger::router(&state.settings.swagger));
+    }
+
+    Ok(root
         .fallback(|| async { AppError::NotFound("Route not found".into()) })
         .method_not_allowed_fallback(|| async { AppError::MethodNotAllowed })
         .layer(DefaultBodyLimit::max(state.settings.app.body_limit_bytes))

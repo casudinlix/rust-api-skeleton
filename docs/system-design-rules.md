@@ -77,6 +77,33 @@ di DTO data. Service/domain tidak boleh mengembalikan Axum `Json` atau
 adalah jalur tunggal untuk failure API sehingga status, header keamanan, sanitasi
 pesan, dan bentuk JSON tetap seragam.
 
+### Swagger/OpenAPI
+
+Swagger merupakan kontrak API yang ikut direview bersama route, bukan output
+sekunder setelah fitur selesai. Setiap endpoint publik baru/perubahan kontrak wajib
+mengubah `src/swagger/mod.rs` pada commit yang sama.
+
+OpenAPI wajib mencerminkan:
+
+- method/path runtime dan `operationId` unik/stabil;
+- request DTO, query/path parameter dan batas validasi yang representable;
+- global success/error envelope yang benar;
+- cursor `data[] + meta.next_cursor + meta.has_more`, tanpa page/offset palsu;
+- status error yang memang dapat dihasilkan endpoint;
+- `bearerAuth` untuk endpoint protected;
+- field PK bernama seperti `customer_id`, bukan generic `id`;
+- examples sintetis tanpa credential atau data user nyata.
+
+Dilarang mendokumentasikan internal entity field, password hash, DB/Redis/SMTP
+credential, lock/lease token, queue payload internal, atau capability yang belum
+ada. Swagger docs route sendiri adalah infrastructure endpoint, sehingga
+OpenAPI JSON/HTML tidak dibungkus `ApiResponse`.
+
+`SWAGGER_ENABLED=false` adalah default dan berarti route UI/spec tidak ada.
+Mengaktifkan Swagger tidak mengubah authentication/authorization business route.
+Untuk production, exposure docs merupakan keputusan deployment/reverse proxy,
+bukan alasan untuk melemahkan guard endpoint.
+
 ### Filesystem dan logging
 
 File runtime memakai `LocalStorage`, bukan `std::fs` langsung dari handler/service.

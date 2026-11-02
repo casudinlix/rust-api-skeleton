@@ -13,6 +13,7 @@ use crate::{
 /// Use crate::response::success/created/cursor for successful HTTP responses.
 /// Reference examples/module_init.rs and docs/module-init.md for the starter pattern.
 /// Register this handler in src/routes/api.rs after implementing the action.
+/// Update src/swagger/mod.rs in the same change for every public endpoint contract.
 pub async fn index(_auth: AuthUser) -> AppResult<ApiJson<Value>> {
     Err(AppError::Internal(anyhow::anyhow!(
         "Implement the __ENTITY__ controller before registering its routes"

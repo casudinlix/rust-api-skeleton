@@ -1,6 +1,8 @@
 //! Minimal starter reference for a new HTTP module.
 //! This example deliberately avoids database access; real modules inject their
 //! repository/service through AppState and follow docs/system-design-rules.md.
+//! When these handlers are registered as public routes, update src/swagger/mod.rs
+//! in the same change so OpenAPI matches the actual request/response contract.
 
 use rust_api_skeleton::{
     domain::dtos::{Normalize, normalize_and_validate},

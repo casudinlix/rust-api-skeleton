@@ -496,3 +496,33 @@ The current execution environment still does not provide Rust/Cargo, so
 and Compose validation were not executed here. The source and configuration were
 reviewed statically; this is not runtime evidence. Run the normal verification
 matrix on Rust 1.99.1 before tagging.
+
+
+## Optional Swagger/OpenAPI contract — 2026-11-02
+
+Implemented without adding a new Cargo dependency:
+
+- `SwaggerConfig` with runtime `SWAGGER_ENABLED`, UI path, OpenAPI path, and
+  pinned HTTPS asset-base validation;
+- Swagger defaults OFF; both UI and spec routes are absent when disabled;
+- OpenAPI 3.1 document for all current reference API routes;
+- Bearer JWT security scheme on protected operations;
+- schemas/examples aligned with named `user_id`, global success/error envelopes,
+  cursor `next_cursor/has_more`, request validation boundaries and safe examples;
+- Swagger UI sets `persistAuthorization: false`;
+- HTTP contract tests cover disabled 404 behavior, enabled UI/OpenAPI behavior,
+  and verify every documented path+method maps to an actual Axum runtime route;
+- configuration/unit tests reject route overlap, traversal-like paths and non-HTTPS
+  asset URLs;
+- README, development, operations, contracts, module-init, system rules and agent
+  rules document the same contract.
+
+No Cargo dependency or lockfile changed. The implementation deliberately avoids
+adding `utoipa`/Swagger crates while this execution environment cannot regenerate
+or verify `Cargo.lock`. A future library migration is allowed only with
+reproducible lockfile update and route/spec drift tests.
+
+The current execution environment still does not provide Rust/Cargo. Therefore
+`cargo fmt`, Clippy, compilation, `make check`, HTTP tests and Docker build
+were not executed here. Static source/config review is not runtime evidence; run
+the normal Rust 1.99.1 verification matrix before tagging.

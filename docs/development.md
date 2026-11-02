@@ -50,6 +50,16 @@ harus sesuai. `make install` tidak membuat database dan tidak menerapkan migrati
 public local storage jalankan `make storage-link`; command ini idempotent dan
 tidak menimpa file/directory biasa.
 
+Swagger bersifat opt-in. Untuk local API docs:
+
+```dotenv
+SWAGGER_ENABLED=true
+```
+
+Lalu buka `/docs` atau `/api-docs/openapi.json`. Route baru atau perubahan
+request/response harus memperbarui kontrak OpenAPI pada change yang sama; lihat
+[panduan Swagger](swagger.md).
+
 ## Daftar command
 
 Jalankan `make help` untuk daftar singkat.
