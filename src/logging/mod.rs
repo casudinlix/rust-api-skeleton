@@ -376,7 +376,7 @@ fn open_file(
     prefix: &str,
     rotation: LogRotation,
     key: &str,
-) -> anyhow::Result<File> {
+) -> io::Result<File> {
     let name = if rotation == LogRotation::Never {
         format!("{prefix}.log")
     } else {
@@ -386,7 +386,6 @@ fn open_file(
         .create(true)
         .append(true)
         .open(directory.join(name))
-        .map_err(|_| anyhow::anyhow!("could not open log file"))
 }
 
 #[cfg(test)]
