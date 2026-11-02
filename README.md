@@ -204,8 +204,11 @@ Error:
 ```
 
 `errors` hanya muncul bila ada detail aman, seperti hasil validation. Error umum
-tidak mengirim `data: null`. Handler memakai `ApiResponse` atau
-`ApiCursorResponse`; seluruh failure mengalir melalui `AppError`.
+tidak mengirim `data: null`. Semua module HTTP memakai helper global
+`crate::response`: `response::success`, `response::created`,
+`response::success_with_status`, dan `response::cursor`. Seluruh failure
+mengalir melalui `AppError`, yang membentuk envelope dengan `response::error`.
+Service/domain tetap bebas dari Axum `Json` dan status HTTP.
 
 Request body dibuat dengan `make request NAME=CreateCustomerRequest`. Scaffold
 menggunakan `Deserialize + Validate`, `deny_unknown_fields`, dan `Normalize`;

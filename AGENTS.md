@@ -21,11 +21,14 @@ generator tidak mengalahkan aturan ini.
   `deny_unknown_fields`, dan `Normalize`; handler memakai `ValidatedJson` dan
   service memanggil `normalize_and_validate` agar caller non-HTTP tidak melewati
   aturan. Password/secret tidak boleh dinormalisasi atau masuk validation metadata.
-- Response JSON wajib memakai kontrak bersama: `ApiResponse` untuk success,
-  `ApiCursorResponse` untuk list cursor (`data` array + `meta.next_cursor` /
-  `meta.has_more`), dan `AppError -> ApiErrorResponse` untuk failure. Dilarang
-  membuat envelope endpoint sendiri, menaruh cursor di dalam `data`, atau
-  mengirim `data:null` pada error.
+- Response JSON wajib memakai helper global `crate::response`:
+  `response::success` / `response::created` / `response::success_with_status`
+  untuk success, `response::cursor` untuk list cursor (`data` array +
+  `meta.next_cursor` / `meta.has_more`), dan `AppError` memakai
+  `response::error` untuk failure. Dilarang merakit `Json<ApiResponse<_>>`
+  manual, membuat envelope endpoint sendiri, menaruh cursor di dalam `data`,
+  atau mengirim `data:null` pada error. Helper ini milik boundary HTTP; service
+  dan domain tidak boleh bergantung pada Axum response/status.
 
 ## 2. Desain database dan migration sebelum fitur
 

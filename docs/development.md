@@ -137,14 +137,26 @@ Extractor melakukan deserialize → normalize → validate. Service tetap memang
 tidak dapat melewati validasi. Unknown field ditolak; password/secret tidak boleh
 di-trim, diubah case, atau dimasukkan ke detail error.
 
-Semua handler JSON wajib memakai helper response yang sama:
+Semua handler JSON wajib memakai helper global `crate::response`, yang
+dire-export dari `utils::response`. Module/domain HTTP baru tidak perlu merakit
+`Json<ApiResponse<_>>` atau mengisi envelope secara manual:
 
 ```rust
-Json(ApiResponse::success("Customer retrieved", customer))
+use crate::response::{self, ApiJson, ApiStatusJson};
+
+pub async fn show() -> AppResult<ApiJson<CustomerResponse>> {
+    Ok(response::success("Customer retrieved", customer))
+}
+
+pub async fn store() -> AppResult<ApiStatusJson<CustomerResponse>> {
+    Ok(response::created("Customer created", customer))
+}
 ```
 
-List cursor memakai `ApiCursorResponse`; `data` langsung berupa item array dan
-metadata pagination berada di `meta`:
+Untuk status success lain, gunakan
+`response::success_with_status(StatusCode::ACCEPTED, message, data)`.
+List cursor memakai `response::cursor(...)`; `data` langsung berupa item array
+dan metadata pagination berada di `meta`:
 
 ```json
 {
@@ -158,7 +170,8 @@ metadata pagination berada di `meta`:
 }
 ```
 
-Error hanya berasal dari `AppError` → `ApiErrorResponse`:
+Error hanya berasal dari `AppError`; `AppError` sendiri memakai helper global
+`response::error(...)` untuk membentuk `ApiErrorResponse`:
 
 ```json
 {
@@ -173,7 +186,9 @@ Error hanya berasal dari `AppError` → `ApiErrorResponse`:
 ```
 
 Untuk error tanpa detail aman, field `errors` dihilangkan. Error tidak mengirim
-`data: null`. Jangan membuat envelope khusus per endpoint.
+`data: null`. Jangan membuat envelope khusus per endpoint. Helper response hanya
+dipakai pada boundary HTTP/handler; service dan domain tetap mengembalikan tipe
+bisnis/DTO serta `AppResult`, bukan `Json` atau status HTTP.
 
 Suffix umum boleh disertakan atau dihilangkan: `Customer`, `CustomerController`,
 dan `CustomerHandler` merujuk scaffold controller yang sama. Karena itu, nama

@@ -1,26 +1,24 @@
 use crate::{
     domain::dtos::{LoginRequest, RegisterRequest, TokenResponse},
     errors::AppResult,
+    response::{self, ApiJson, ApiStatusJson},
     state::AppState,
-    utils::{response::ApiResponse, validator::ValidatedJson},
+    utils::validator::ValidatedJson,
 };
-use axum::{Json, extract::State, http::StatusCode};
+use axum::extract::State;
 
 pub async fn register(
     State(state): State<AppState>,
     ValidatedJson(input): ValidatedJson<RegisterRequest>,
-) -> AppResult<(StatusCode, Json<ApiResponse<TokenResponse>>)> {
+) -> AppResult<ApiStatusJson<TokenResponse>> {
     let token = state.auth_service.register(input).await?;
-    Ok((
-        StatusCode::CREATED,
-        Json(ApiResponse::success("Registration successful", token)),
-    ))
+    Ok(response::created("Registration successful", token))
 }
 
 pub async fn login(
     State(state): State<AppState>,
     ValidatedJson(input): ValidatedJson<LoginRequest>,
-) -> AppResult<Json<ApiResponse<TokenResponse>>> {
+) -> AppResult<ApiJson<TokenResponse>> {
     let token = state.auth_service.login(input).await?;
-    Ok(Json(ApiResponse::success("Login successful", token)))
+    Ok(response::success("Login successful", token))
 }

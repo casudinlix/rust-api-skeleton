@@ -1,18 +1,18 @@
 //! Source templates for the developer console's generators.
 
 pub(super) fn controller(entity: &str) -> String {
-    r#"use axum::Json;
-use serde_json::Value;
+    r#"use serde_json::Value;
 
 use crate::{
     errors::{AppError, AppResult},
     middleware::auth::AuthUser,
-    utils::response::ApiResponse,
+    response::ApiJson,
 };
 
 /// Inject the service through AppState, authorize access, then return its DTO.
+/// Return successful data through crate::response::success(...).
 /// Register this handler in src/routes/api.rs after implementing the action.
-pub async fn index(_auth: AuthUser) -> AppResult<Json<ApiResponse<Value>>> {
+pub async fn index(_auth: AuthUser) -> AppResult<ApiJson<Value>> {
     Err(AppError::Internal(anyhow::anyhow!(
         "Implement the __ENTITY__ controller before registering its routes"
     )))

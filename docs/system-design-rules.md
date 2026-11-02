@@ -61,17 +61,21 @@ service tetap menjalankan `normalize_and_validate` agar validasi tidak bergantun
 pada transport HTTP. Jangan normalisasi password/secret dan jangan bocorkan nilai
 request ke metadata validation.
 
-Response HTTP memakai tiga bentuk yang stabil:
+Response HTTP dibentuk melalui helper global `crate::response`, bukan dengan
+merakit envelope di setiap module:
 
-- `ApiResponse<T>`: `success=true`, `message`, `data`.
-- `ApiCursorResponse<T>`: success yang sama, `data` berupa array item, lalu
+- `response::success` / `response::created` /
+  `response::success_with_status`: `success=true`, `message`, `data`.
+- `response::cursor`: success yang sama, `data` berupa array item, lalu
   `meta.next_cursor` dan `meta.has_more`.
-- `ApiErrorResponse`: `success=false`, `message`, serta `errors` opsional
-  hanya untuk detail aman. Tidak ada `data:null` pada error.
+- `response::error`: `success=false`, `message`, serta `errors` opsional
+  hanya untuk detail aman. `AppError` adalah caller normal helper error ini.
 
 Handler tidak boleh membuat JSON envelope manual atau menaruh metadata pagination
-di DTO data. `AppError` adalah jalur tunggal untuk failure API sehingga status,
-header keamanan, sanitasi pesan, dan bentuk JSON tetap seragam.
+di DTO data. Service/domain tidak boleh mengembalikan Axum `Json` atau
+`StatusCode`; helper global ini hanya menyatukan transport HTTP. `AppError`
+adalah jalur tunggal untuk failure API sehingga status, header keamanan, sanitasi
+pesan, dan bentuk JSON tetap seragam.
 
 ## 3. Konvensi PK, UUIDv7, dan relasi
 

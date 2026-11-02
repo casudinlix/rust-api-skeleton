@@ -1,12 +1,11 @@
 use axum::{
-    Json,
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::utils::response::ApiErrorResponse;
+use crate::response;
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -72,11 +71,7 @@ impl IntoResponse for AppError {
             Self::Validation(errors) => Some(errors.clone()),
             _ => None,
         };
-        let mut response = (
-            status,
-            Json(ApiErrorResponse::new(self.to_string(), details)),
-        )
-            .into_response();
+        let mut response = (status, response::error(self.to_string(), details)).into_response();
         if status == StatusCode::UNAUTHORIZED {
             response.headers_mut().insert(
                 header::WWW_AUTHENTICATE,
