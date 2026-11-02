@@ -11,3 +11,4 @@ public/storage
 storage/app/private/*
 storage/app/public/*
 storage/logs/*
+.specstory

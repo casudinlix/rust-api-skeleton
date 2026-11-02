@@ -14,3 +14,4 @@
 /storage/logs/*
 !/storage/logs/.gitkeep
 /public/storage
+.specstory
