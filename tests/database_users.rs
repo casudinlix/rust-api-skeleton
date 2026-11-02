@@ -2,6 +2,8 @@
 //! TEST_DATABASE_URL=postgres://... cargo test --test database_users postgres_users -- --ignored
 //! Tests create only unique fixtures and remove only their own rows.
 
+mod support;
+
 use std::{
     collections::HashSet,
     future::Future,
@@ -52,7 +54,7 @@ fn new_user(user_id: Uuid, email: String) -> NewUser {
 async fn exercise_users(driver: DatabaseDriver) {
     let database = DatabasePool::connect(&DatabaseConfig {
         driver,
-        url: std::env::var("TEST_DATABASE_URL").expect("set TEST_DATABASE_URL explicitly"),
+        url: support::database_url(driver).expect("load test database URL"),
         max_connections: 5,
         min_connections: 2,
         acquire_timeout_secs: 10,

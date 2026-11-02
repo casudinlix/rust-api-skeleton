@@ -435,6 +435,14 @@ mod tests {
 
     use super::*;
 
+    fn test_redis_url() -> String {
+        let _ = dotenvy::dotenv();
+        std::env::var("TEST_REDIS_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .expect("set TEST_REDIS_URL in .env or the process environment")
+    }
+
     #[test]
     fn redis_envelope_is_small_versioned_and_preserves_application_uuidv7() {
         let job_id = Uuid::now_v7();
@@ -492,8 +500,7 @@ mod tests {
 
     async fn test_transport() -> RedisTransport {
         let config = RedisQueueConfig {
-            url: std::env::var("TEST_REDIS_URL")
-                .expect("TEST_REDIS_URL must point to a disposable Redis"),
+            url: test_redis_url(),
             prefix: format!("rust-api-transport-test:{}", Uuid::now_v7()),
             timeout_ms: 1_000,
         };
@@ -875,7 +882,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires TEST_REDIS_URL pointing to a disposable Redis"]
     async fn redis_authentication_failure_is_bounded_and_sanitized() {
-        let mut url = url::Url::parse(&std::env::var("TEST_REDIS_URL").unwrap()).unwrap();
+        let mut url = url::Url::parse(&test_redis_url()).unwrap();
         url.set_username("nonexistent-transport-test-user").unwrap();
         url.set_password(Some("secret-value-must-never-leak"))
             .unwrap();

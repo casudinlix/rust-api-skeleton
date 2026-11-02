@@ -2,6 +2,8 @@
 //! The configured account needs CREATE DATABASE/DROP DATABASE privileges. Existing
 //! databases and jobs are never truncated or modified.
 
+mod support;
+
 use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, Utc};
 use rust_api_skeleton::{
@@ -32,7 +34,7 @@ async fn mysql_queue() -> Result<()> {
 }
 
 async fn exercise_isolated_database(driver: DatabaseDriver) -> Result<()> {
-    let supplied = std::env::var("TEST_DATABASE_URL").context("set TEST_DATABASE_URL")?;
+    let supplied = support::database_url(driver)?;
     let mut url = url::Url::parse(&supplied).context("invalid TEST_DATABASE_URL")?;
     match driver {
         DatabaseDriver::Postgres => ensure!(

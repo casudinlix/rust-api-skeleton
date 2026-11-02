@@ -2,6 +2,8 @@
 //! Each test creates and drops only its own temporary database. No Redis server
 //! is required to exercise publish/consume crash boundaries at the SQL ledger.
 
+mod support;
+
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
@@ -36,7 +38,7 @@ async fn mysql_outbox() -> Result<()> {
 }
 
 async fn isolated(driver: DatabaseDriver) -> Result<()> {
-    let supplied = std::env::var("TEST_DATABASE_URL").context("set TEST_DATABASE_URL")?;
+    let supplied = support::database_url(driver)?;
     let mut url = url::Url::parse(&supplied).context("invalid TEST_DATABASE_URL")?;
     match driver {
         DatabaseDriver::Postgres => ensure!(

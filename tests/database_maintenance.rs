@@ -1,6 +1,8 @@
 //! Destructive migration command regression tests. Each test creates and removes
 //! only its own database. Run through make test-postgres / make test-mysql.
 
+mod support;
+
 use std::{path::Path, process::Command};
 
 use anyhow::{Context, Result, ensure};
@@ -26,7 +28,7 @@ async fn mysql_database_maintenance() -> Result<()> {
 }
 
 async fn isolated(driver: DatabaseDriver) -> Result<()> {
-    let supplied = std::env::var("TEST_DATABASE_URL").context("set TEST_DATABASE_URL")?;
+    let supplied = support::database_url(driver)?;
     let mut url = url::Url::parse(&supplied).context("invalid TEST_DATABASE_URL")?;
     match driver {
         DatabaseDriver::Postgres => ensure!(

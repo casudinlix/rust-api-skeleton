@@ -48,8 +48,9 @@ Tidak boleh ada warning compiler/linter.
 Gunakan database disposable, bukan production.
 
 ```bash
-TEST_DATABASE_URL=... make test-postgres
-TEST_DATABASE_URL=... make test-mysql
+# URLs may live in .env or be supplied by CI/process environment.
+make test-postgres   # TEST_POSTGRES_URL, fallback TEST_DATABASE_URL
+make test-mysql      # TEST_MYSQL_URL, fallback TEST_DATABASE_URL
 ```
 
 Verifikasi migration fresh, latest rollback → forward migrate lagi, seeder default,
@@ -61,8 +62,8 @@ menjalankan regression `database_maintenance` pada database disposable.
 Gunakan Redis disposable terpisah dari instance production.
 
 ```bash
-TEST_REDIS_URL=... make test-redis
-TEST_REDIS_URL=... make test-redis-transport
+make test-redis
+make test-redis-transport
 ```
 
 Untuk queue Redis + SQL outbox:

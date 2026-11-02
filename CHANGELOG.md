@@ -18,6 +18,9 @@ Format mengikuti Keep a Changelog dan versi mengikuti Semantic Versioning.
 - Release checklist untuk candidate `v0.1.0`.
 - `migrate:rollback`, `migrate:fresh`, companion rollback SQL untuk kedua DB,
   `db:seed --class`, dan generator `make:seeder` dengan registry eksplisit.
+- Integration-test URL loader melalui `dotenvy`: `.env` mendukung
+  `TEST_POSTGRES_URL`, `TEST_MYSQL_URL`, `TEST_REDIS_URL`, dengan
+  `TEST_DATABASE_URL` sebagai fallback kompatibel.
 
 ## Release policy
 

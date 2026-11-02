@@ -25,9 +25,12 @@ override SHUTDOWN_TIMEOUT := $(value SHUTDOWN_TIMEOUT)
 override DB_DRIVER := $(value DB_DRIVER)
 override DB_FEATURES := $(value DB_FEATURES)
 override TEST_DATABASE_URL := $(value TEST_DATABASE_URL)
+override TEST_POSTGRES_URL := $(value TEST_POSTGRES_URL)
+override TEST_MYSQL_URL := $(value TEST_MYSQL_URL)
 override TEST_REDIS_URL := $(value TEST_REDIS_URL)
 
 unexport NAME PACKAGE FEATURES DEV SCHEDULER FORCE SEED STEP CLASS SHUTDOWN_TIMEOUT
+unexport TEST_DATABASE_URL TEST_POSTGRES_URL TEST_MYSQL_URL TEST_REDIS_URL
 unexport ARTISAN_NAME ARTISAN_PACKAGE ARTISAN_FEATURES ARTISAN_CLASS
 ifneq ($(value NAME),)
 export ARTISAN_NAME := $(value NAME)
@@ -47,7 +50,18 @@ export ARTISAN_FORCE := $(value FORCE)
 export ARTISAN_SEED := $(value SEED)
 export ARTISAN_STEP := $(value STEP)
 export ARTISAN_SHUTDOWN_TIMEOUT := $(value SHUTDOWN_TIMEOUT)
-export TEST_DATABASE_URL TEST_REDIS_URL
+ifneq ($(value TEST_DATABASE_URL),)
+export TEST_DATABASE_URL := $(value TEST_DATABASE_URL)
+endif
+ifneq ($(value TEST_POSTGRES_URL),)
+export TEST_POSTGRES_URL := $(value TEST_POSTGRES_URL)
+endif
+ifneq ($(value TEST_MYSQL_URL),)
+export TEST_MYSQL_URL := $(value TEST_MYSQL_URL)
+endif
+ifneq ($(value TEST_REDIS_URL),)
+export TEST_REDIS_URL := $(value TEST_REDIS_URL)
+endif
 
 # These selectors are only recipe inputs. Do not export the default DB_DRIVER:
 # native applications must still be able to select MySQL from their .env file.
@@ -91,12 +105,12 @@ help:
 	  'migrate-fresh Roll back all + migrate [SEED=1] [CLASS=Seeder] [FORCE=1]' \
 	  'db-seed       Run DatabaseSeeder or CLASS=CustomerSeeder [FORCE=1 production]' \
 	  'check         Formatting, clippy, tests, driver matrix' \
-	  'test-postgres TEST_DATABASE_URL=... (disposable DB, CREATE DATABASE grant)' \
-	  'test-mysql    TEST_DATABASE_URL=... (disposable DB, CREATE DATABASE grant)' \
-	  'test-redis    TEST_REDIS_URL=... (disposable Redis cache)' \
-	  'test-redis-transport TEST_REDIS_URL=... (disposable Redis queue)' \
-	  'test-queue-postgres TEST_DATABASE_URL=... TEST_REDIS_URL=... (Redis + PostgreSQL)' \
-	  'test-queue-mysql TEST_DATABASE_URL=... TEST_REDIS_URL=... (Redis + MySQL)' \
+	  'test-postgres TEST_POSTGRES_URL or TEST_DATABASE_URL from .env/process' \
+	  'test-mysql    TEST_MYSQL_URL or TEST_DATABASE_URL from .env/process' \
+	  'test-redis    TEST_REDIS_URL from .env/process' \
+	  'test-redis-transport TEST_REDIS_URL from .env/process' \
+	  'test-queue-postgres TEST_POSTGRES_URL + TEST_REDIS_URL from .env/process' \
+	  'test-queue-mysql TEST_MYSQL_URL + TEST_REDIS_URL from .env/process' \
 	  'test-scaffolds Generate all scaffolds in a temporary project and verify compilation' \
 	  'build         Build release binaries (DB_FEATURES=postgres,mysql)' \
 	  'docker-build  Build runtime image (DB_FEATURES=postgres,mysql)' \
@@ -164,24 +178,16 @@ check:
 	cargo fmt --all -- --check
 	$(MAKE) lint test check-drivers
 test-postgres:
-	@test -n "$$TEST_DATABASE_URL" || (printf '%s\n' 'Set TEST_DATABASE_URL to a disposable PostgreSQL database'; exit 1)
 	cargo test --locked --test database_users --test database_api --test database_queue --test database_outbox --test schema_alignment --test database_maintenance postgres_ -- --ignored --test-threads=1
 test-mysql:
-	@test -n "$$TEST_DATABASE_URL" || (printf '%s\n' 'Set TEST_DATABASE_URL to a disposable MySQL database'; exit 1)
 	cargo test --locked --test database_users --test database_api --test database_queue --test database_outbox --test schema_alignment --test database_maintenance mysql_ -- --ignored --test-threads=1
 test-redis:
-	@test -n "$$TEST_REDIS_URL" || (printf '%s\n' 'Set TEST_REDIS_URL to a disposable Redis instance'; exit 1)
 	cargo test --locked --test cache_redis -- --ignored --test-threads=1
 test-redis-transport:
-	@test -n "$$TEST_REDIS_URL" || (printf '%s\n' 'Set TEST_REDIS_URL to a disposable Redis queue instance'; exit 1)
 	cargo test --locked --lib jobs::redis::tests:: -- --ignored --test-threads=1
 test-queue-postgres:
-	@test -n "$$TEST_DATABASE_URL" || (printf '%s\n' 'Set TEST_DATABASE_URL to a disposable PostgreSQL database'; exit 1)
-	@test -n "$$TEST_REDIS_URL" || (printf '%s\n' 'Set TEST_REDIS_URL to a disposable Redis queue instance'; exit 1)
 	cargo test --locked --test queue_redis postgres_ -- --ignored --test-threads=1
 test-queue-mysql:
-	@test -n "$$TEST_DATABASE_URL" || (printf '%s\n' 'Set TEST_DATABASE_URL to a disposable MySQL database'; exit 1)
-	@test -n "$$TEST_REDIS_URL" || (printf '%s\n' 'Set TEST_REDIS_URL to a disposable Redis queue instance'; exit 1)
 	cargo test --locked --test queue_redis mysql_ -- --ignored --test-threads=1
 test-scaffolds:
 	cargo test --locked --test artisan_scaffolds -- --ignored --test-threads=1

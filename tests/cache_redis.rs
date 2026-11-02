@@ -1,6 +1,8 @@
 //! Run explicitly against a disposable Redis with TEST_REDIS_URL. Every test
 //! owns a unique prefix and removes only its keys; no global flush is used.
 
+mod support;
+
 use std::{
     sync::{
         Arc,
@@ -20,8 +22,7 @@ use uuid::Uuid;
 fn settings() -> CacheConfig {
     CacheConfig {
         driver: CacheDriver::Redis,
-        redis_url: std::env::var("TEST_REDIS_URL")
-            .expect("TEST_REDIS_URL must point to an isolated test Redis"),
+        redis_url: support::redis_url().expect("load test Redis URL"),
         prefix: format!("rust-api-test:{}:cache:", Uuid::new_v4()),
         default_ttl_secs: 10,
         timeout_ms: 1000,

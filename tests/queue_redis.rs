@@ -4,6 +4,8 @@
 //! Redis or modify the database named by TEST_DATABASE_URL. The supplied SQL
 //! account must be allowed to create and drop a disposable database.
 
+mod support;
+
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -41,8 +43,8 @@ async fn mysql_redis_queue() -> Result<()> {
 }
 
 async fn isolated(driver: DatabaseDriver) -> Result<()> {
-    let supplied = std::env::var("TEST_DATABASE_URL").context("set TEST_DATABASE_URL")?;
-    let redis_url = std::env::var("TEST_REDIS_URL").context("set TEST_REDIS_URL")?;
+    let supplied = support::database_url(driver)?;
+    let redis_url = support::redis_url()?;
     let mut url = url::Url::parse(&supplied).context("invalid TEST_DATABASE_URL")?;
     match driver {
         DatabaseDriver::Postgres => ensure!(

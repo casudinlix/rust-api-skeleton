@@ -1,4 +1,6 @@
 //! Full HTTP/service/repository tests. Use only a disposable test database.
+
+mod support;
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -62,7 +64,8 @@ async fn exercise(driver: &str) {
         .unwrap()
         .set_override(
             "database_url",
-            std::env::var("TEST_DATABASE_URL").expect("set TEST_DATABASE_URL"),
+            support::database_url(driver.parse().expect("known database driver"))
+                .expect("load test database URL"),
         )
         .unwrap()
         .set_override(

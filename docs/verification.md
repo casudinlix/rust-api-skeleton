@@ -575,3 +575,21 @@ and companion rollback SQL so historical forward checksums remain intact.
 This revision still requires local execution after pull: run `make precommit`,
 then `make test-postgres` and `make test-mysql` on disposable databases. MySQL
 rollback deserves particular attention because DDL implicitly commits.
+
+
+## Integration-test dotenv loading — 2026-11-02
+
+Fixed the local test runner contract after real execution showed Make targets
+rejecting `TEST_DATABASE_URL` even when it existed in `.env`.
+
+- Make no longer requires test URLs to already exist in its process environment;
+- integration tests load `.env` with `dotenvy` without overriding explicit CI/shell values;
+- PostgreSQL prefers `TEST_POSTGRES_URL`, MySQL prefers `TEST_MYSQL_URL`;
+- `TEST_DATABASE_URL` remains a backward-compatible fallback;
+- Redis tests, including library transport tests, load `TEST_REDIS_URL` the same way;
+- Make only exports test URLs when explicitly supplied on its command line/environment,
+  avoiding an exported empty value that would mask `.env` loading.
+
+The user-provided test output also showed the current pre-commit run stopping at
+`cargo fmt --check`; that is a separate formatting gate and must be resolved with
+`make fmt` before claiming the pre-commit gate passed.

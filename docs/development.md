@@ -447,3 +447,23 @@ migrate ulang. Pada production keduanya memerlukan `FORCE=1`.
 Default `DatabaseSeeder` tidak menulis apa pun. `make seeder` membuat class
 terdaftar secara eksplisit; jalankan dengan `make db-seed CLASS=...`.
 Lihat [database-workflow.md](database-workflow.md).
+
+
+## Environment integration test
+
+Target `make test-postgres`, `make test-mysql`, `make test-redis` dan queue
+integration memuat `.env` melalui `dotenvy`; Makefile tidak mengeksekusi atau
+`include` isi `.env`.
+
+Gunakan:
+
+```dotenv
+TEST_POSTGRES_URL=postgres://user:password@127.0.0.1:5432/postgres
+TEST_MYSQL_URL=mysql://user:password@127.0.0.1:3306/mysql
+TEST_REDIS_URL=redis://127.0.0.1:6379/15
+```
+
+`TEST_DATABASE_URL` tetap didukung sebagai fallback backward-compatible untuk
+satu driver. Environment process/CI memiliki precedence atas nilai `.env`.
+URL database test harus memakai account yang boleh membuat/menghapus database
+disposable karena test matrix membuat database unik sendiri.

@@ -26,7 +26,7 @@ impl Fixture {
                 &path,
                 r#"#!/bin/sh
 printf '%s\000' "$@" > "$CAPTURE_ARGS"
-printf '%s\000' "${ARTISAN_NAME-unset}" "${ARTISAN_PACKAGE-unset}" "${ARTISAN_FEATURES-unset}" "${ARTISAN_DEV-unset}" "${ARTISAN_SCHEDULER-unset}" "${ARTISAN_FORCE-unset}" "${ARTISAN_SEED-unset}" "${ARTISAN_STEP-unset}" "${ARTISAN_CLASS-unset}" "${ARTISAN_SHUTDOWN_TIMEOUT-unset}" "${DB_DRIVER-unset}" > "$CAPTURE_ENV"
+printf '%s\000' "${ARTISAN_NAME-unset}" "${ARTISAN_PACKAGE-unset}" "${ARTISAN_FEATURES-unset}" "${ARTISAN_DEV-unset}" "${ARTISAN_SCHEDULER-unset}" "${ARTISAN_FORCE-unset}" "${ARTISAN_SEED-unset}" "${ARTISAN_STEP-unset}" "${ARTISAN_CLASS-unset}" "${ARTISAN_SHUTDOWN_TIMEOUT-unset}" "${TEST_DATABASE_URL-unset}" "${TEST_POSTGRES_URL-unset}" "${TEST_MYSQL_URL-unset}" "${TEST_REDIS_URL-unset}" "${DB_DRIVER-unset}" > "$CAPTURE_ENV"
 "#,
             )
             .expect("write stub executable");
@@ -150,6 +150,10 @@ fn wrapper_options_are_passed_as_environment_values() {
             "CustomerSeeder",
             "12",
             "unset",
+            "unset",
+            "unset",
+            "unset",
+            "unset",
         ]
     );
 }
@@ -165,6 +169,10 @@ fn literal_make_and_shell_expressions_never_execute() {
         ("DB_DRIVER", "docker-db"),
         ("NAME", "check"),
         ("CLASS", "db-seed"),
+        ("TEST_DATABASE_URL", "test-postgres"),
+        ("TEST_POSTGRES_URL", "test-postgres"),
+        ("TEST_MYSQL_URL", "test-mysql"),
+        ("TEST_REDIS_URL", "test-redis"),
     ] {
         let make_marker = fixture.root().join(format!("make-marker-{variable}"));
         let shell_marker = fixture.root().join(format!("shell-marker-{variable}"));

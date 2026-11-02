@@ -1,6 +1,8 @@
 //! Upgrade regression: immutable migration history and existing UUIDs survive
 //! canonical PK names. Each test creates and removes only its own database.
 
+mod support;
+
 use std::{borrow::Cow, collections::BTreeMap};
 
 use anyhow::{Context, Result, ensure};
@@ -39,7 +41,7 @@ async fn mysql_schema_alignment() -> Result<()> {
 }
 
 async fn isolated(driver: DatabaseDriver) -> Result<()> {
-    let supplied = std::env::var("TEST_DATABASE_URL").context("set TEST_DATABASE_URL")?;
+    let supplied = support::database_url(driver)?;
     let mut url = url::Url::parse(&supplied).context("invalid TEST_DATABASE_URL")?;
     match driver {
         DatabaseDriver::Postgres => ensure!(
