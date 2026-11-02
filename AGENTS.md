@@ -142,6 +142,9 @@ generator tidak mengalahkan aturan ini.
   atau payload job. Rancang migration baru dan rollout kompatibilitas terlebih
   dahulu; rename kolom tidak boleh meregenerasi ID. Laporkan ketidaksesuaian yang
   masih ada tanpa mengklaim semua legacy telah mematuhi aturan baru.
+- Gunakan `examples/module_init.rs` dan `docs/module-init.md` sebagai reference
+  init module untuk request/service/response boundary; existing User/Auth/Health
+  adalah reference runtime nyata.
 - Tinjau output `make model`, `make request`, `make repository`, dan
   `make migration` sebelum dipakai. Berhasil compile belum membuktikan PK, UUIDv7, proyeksi, indeks, atau
   policy sudah benar. Jalankan `make test-scaffolds` jika generator berubah.

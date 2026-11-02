@@ -116,7 +116,9 @@ Binary `migrate` hanya menerapkan migration maju; tidak menyediakan reset databa
 atau rollback destruktif otomatis.
 
 Lihat [panduan command development](docs/development.md) untuk generator,
-penambahan package, rotasi key, dan contoh alur membuat fitur.
+penambahan package, rotasi key, dan contoh alur membuat fitur. Untuk module
+pertama, gunakan [starter pattern](docs/module-init.md) dan source yang dapat
+dikompilasi di [examples/module_init.rs](examples/module_init.rs).
 
 ## 2. Memilih database
 
@@ -447,7 +449,9 @@ make controller NAME=CustomerController
 
 Modul Rust didaftarkan otomatis. Business logic, dependency injection, policy,
 route, dan SQL tetap Anda lengkapi secara eksplisit. Generator menolak file/modul
-yang sudah ada; lihat [panduan development](docs/development.md) untuk detail.
+yang sudah ada. Gunakan [starter module](docs/module-init.md) sebagai pola init
+untuk request validation dan helper global response, lalu lihat
+[panduan development](docs/development.md) untuk detail generator.
 
 Untuk job baru: tetapkan `kind` dan payload ber-versi yang tidak menyimpan secret,
 buat handler idempotent, lalu daftarkan dispatch pada lapisan jobs. Gunakan facade

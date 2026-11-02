@@ -256,6 +256,11 @@ sudah mempunyai backlog.
 
 ## Alur membuat fitur baru
 
+Untuk module pertama, baca [starter pattern](module-init.md) dan source
+[`examples/module_init.rs`](../examples/module_init.rs). Contoh itu menunjukkan
+request validation, service boundary, serta helper global response dalam satu
+alur minimal yang dapat ikut dikompilasi oleh Cargo.
+
 Tulis desain fitur dan rancang PK/FK, query, cursor, constraint, serta indeks
 terlebih dahulu sesuai [aturan sistem](system-design-rules.md). Contoh berikut
 menyiapkan migration dan berkas untuk fitur customer:

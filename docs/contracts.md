@@ -30,6 +30,7 @@ behavior is documented in README; update this file when an interface changes.
   `crate::response`. Handlers use `response::success`, `response::created`,
   `response::success_with_status`, or `response::cursor`; return aliases are
   `ApiJson<T>`, `ApiStatusJson<T>`, and `ApiCursorJson<T>`.
+  `examples/module_init.rs` is the compiling starter reference for new modules.
 - HTTP success responses serialize `success=true`, `message`, and `data`.
   Cursor lists additionally serialize `meta.next_cursor` and derived
   `meta.has_more`; list `data` is the item array, never a nested pagination DTO.

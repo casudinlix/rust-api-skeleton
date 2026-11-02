@@ -416,3 +416,25 @@ and production deployment were not part of this change. The prior verification
 sections remain historical records, including their earlier legacy limitations;
 this section records the subsequent example alignment. GitHub runner quota was
 not used as an acceptance gate.
+
+
+## Starter module and global response sample — 2026-11-02
+
+The starter/reference surface was aligned with the global HTTP response facade:
+
+- Added `examples/module_init.rs` as a minimal module showing
+  `ValidatedJson<Request> -> service -> normalize_and_validate -> response helper`.
+- The example uses `response::success`, `response::created`, and
+  `response::cursor`; service/domain types do not depend on Axum response wrappers.
+- Controller scaffolds now point developers to the compiling starter sample and
+  `docs/module-init.md`.
+- `artisan_scaffolds` now asserts generated requests keep the validation contract
+  and generated controllers advertise the global response facade.
+- README, development guide, contracts, and agent rules link to the same pattern.
+
+This change does not touch SQL, migrations, queue semantics, or cache behavior.
+The current execution environment did not provide a Rust toolchain, so
+`cargo fmt`, `make check`, and `make test-scaffolds` were not executed for
+this documentation/example-only alignment. The source was reviewed for consistency
+against the current public helper signatures. GitHub Actions status is not used as
+an acceptance gate.

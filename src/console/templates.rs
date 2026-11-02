@@ -10,7 +10,8 @@ use crate::{
 };
 
 /// Inject the service through AppState, authorize access, then return its DTO.
-/// Return successful data through crate::response::success(...).
+/// Use crate::response::success/created/cursor for successful HTTP responses.
+/// Reference examples/module_init.rs and docs/module-init.md for the starter pattern.
 /// Register this handler in src/routes/api.rs after implementing the action.
 pub async fn index(_auth: AuthUser) -> AppResult<ApiJson<Value>> {
     Err(AppError::Internal(anyhow::anyhow!(

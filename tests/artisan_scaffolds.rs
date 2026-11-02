@@ -80,6 +80,20 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
             "generated request omitted validation contract {required:?}"
         );
     }
+
+    let controller = fs::read_to_string(root.join("src/handlers/customer_handler.rs")).unwrap();
+    for required in [
+        "response::ApiJson",
+        "crate::response::success/created/cursor",
+        "examples/module_init.rs",
+        "docs/module-init.md",
+    ] {
+        assert!(
+            controller.contains(required),
+            "generated controller omitted global response guidance {required:?}"
+        );
+    }
+
     assert_eq!(fs::read(root.join("src/routes/api.rs")).unwrap(), route);
     assert_eq!(fs::read(root.join("src/jobs/worker.rs")).unwrap(), worker);
     fs::create_dir(root.join("tests")).unwrap();
