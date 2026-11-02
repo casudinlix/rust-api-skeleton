@@ -126,7 +126,7 @@ impl Metrics {
         self.inner.http_requests_total.fetch_add(1, Ordering::Relaxed);
         self.inner
             .http_in_flight
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 Some(value.saturating_sub(1))
             })
             .ok();
@@ -154,7 +154,7 @@ impl Metrics {
     pub fn job_finished(&self, outcome: JobOutcome, elapsed: Duration) {
         self.inner
             .jobs_in_flight
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 Some(value.saturating_sub(1))
             })
             .ok();

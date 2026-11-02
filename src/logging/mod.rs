@@ -209,11 +209,9 @@ fn init_stdout(format: &str, env_filter: EnvFilter) -> anyhow::Result<()> {
     }
 }
 
-fn filter::filter_fn(safe_target) -> filter::FilterFn<impl Fn(&tracing::Metadata<'_>) -> bool + Clone> {
-    filter::filter_fn(|metadata| {
-        !metadata.target().starts_with("apalis_core")
-            && !metadata.target().starts_with("apalis_redis")
-    })
+fn safe_target(metadata: &tracing::Metadata<'_>) -> bool {
+    !metadata.target().starts_with("apalis_core")
+        && !metadata.target().starts_with("apalis_redis")
 }
 
 fn file_writer(config: &LoggingConfig, process: &str) -> anyhow::Result<(AsyncMakeWriter, LogGuard)> {
