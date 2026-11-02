@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
-# Multi-platform Docker Official Images, pinned to reviewed index digests.
-# Update digests via Dependabot and re-scan before deploying.
-FROM rust:1.99.1-bookworm@sha256:9181b56c2a21ab1d5e73cffe04fc762426d30aa7fac3c91141dd033f49a7fc8b AS builder
+# Official base images. Resolve and pin verified manifest digests before production release.
+FROM rust:1.99.1-bookworm AS builder
 
 WORKDIR /build
 ARG DB_FEATURES=postgres,mysql
@@ -28,7 +27,7 @@ RUN --mount=type=cache,id=rust-api-cargo-registry,target=/usr/local/cargo/regist
       install -m 0755 "/build/target/release/$bin" "/out/$bin"; \
     done
 
-FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS runtime
+FROM debian:bookworm-slim AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/casudinlix/rust-api-skeleton" \
       org.opencontainers.image.description="Minimal non-root Rust API Skeleton runtime"
