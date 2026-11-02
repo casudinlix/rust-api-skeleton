@@ -23,6 +23,7 @@ pub enum Kind {
     Job,
     Middleware,
     Migration,
+    Seeder,
 }
 
 pub fn run(root: &Path, kind: Kind, name: &str) -> anyhow::Result<Vec<PathBuf>> {
@@ -33,6 +34,9 @@ fn run_at(root: &Path, kind: Kind, name: &str, now: DateTime<Utc>) -> anyhow::Re
     let name = Name::parse(kind, name)?;
     if kind == Kind::Migration {
         return migration(root, &name.module, now);
+    }
+    if kind == Kind::Seeder {
+        return seeder(root, &name);
     }
 
     let artifacts = artifacts(kind, &name);
@@ -90,6 +94,7 @@ impl Name {
             Kind::Job => &["job"],
             Kind::Middleware => &["middleware"],
             Kind::Migration => &["migration"],
+            Kind::Seeder => &["seeder"],
         };
         ensure!(
             !suffixes.contains(&normalized.as_str()),
@@ -196,8 +201,69 @@ fn artifacts(kind: Kind, name: &Name) -> Vec<Artifact> {
             module.clone(),
             templates::middleware(),
         )],
-        Kind::Migration => Vec::new(),
+        Kind::Migration | Kind::Seeder => Vec::new(),
     }
+}
+
+fn seeder(root: &Path, name: &Name) -> anyhow::Result<Vec<PathBuf>> {
+    let module = format!("{}_seeder", name.module);
+    let class = format!("{}Seeder", name.entity);
+    let relative = Path::new("src/seeders").join(format!("{module}.rs"));
+    ensure!(
+        project::read_optional(root, &relative)?.is_none(),
+        "{} already exists; refusing to overwrite it",
+        relative.display()
+    );
+
+    let contents = templates::seeder(&class);
+    syn::parse_file(&contents).context("generated seeder source is invalid")?;
+
+    let registry_path = Path::new("src/seeders/mod.rs");
+    let before = project::read_optional(root, registry_path)?
+        .context("src/seeders/mod.rs is missing; restore the seeder registry")?;
+    let parsed = syn::parse_file(&before).context("src/seeders/mod.rs has invalid Rust syntax")?;
+    ensure!(
+        !parsed.items.iter().any(|item| item_binds(item, &module)),
+        "src/seeders/mod.rs already declares {module}"
+    );
+    ensure!(
+        !before.contains(&format!("\"{class}\"")),
+        "seeder class {class} is already registered"
+    );
+    const MARKER: &str = "        // ARTISAN_SEEDER_REGISTRY\n";
+    ensure!(
+        before.matches(MARKER).count() == 1,
+        "src/seeders/mod.rs registry marker is missing or duplicated"
+    );
+
+    let mut after = before.clone();
+    let declaration = format!("pub mod {module};\n");
+    if let Some(index) = after.find("\n\nuse anyhow::bail;") {
+        after.insert_str(index + 1, &declaration);
+    } else {
+        anyhow::bail!("src/seeders/mod.rs module insertion anchor is missing");
+    }
+    let entry = format!("        \"{class}\" => {module}::run(database).await,\n");
+    after = after.replacen(MARKER, &(entry + MARKER), 1);
+
+    project::apply_changes(
+        root,
+        vec![
+            FileChange {
+                relative: relative.clone(),
+                before: None,
+                after: contents,
+                private: false,
+            },
+            FileChange {
+                relative: registry_path.to_path_buf(),
+                before: Some(before),
+                after,
+                private: false,
+            },
+        ],
+    )?;
+    Ok(vec![relative])
 }
 
 fn module_change(root: &Path, relative: &Path, module: &str) -> anyhow::Result<FileChange> {
@@ -335,15 +401,27 @@ fn migration(root: &Path, name: &str, now: DateTime<Utc>) -> anyhow::Result<Vec<
         ("mysql", "MySQL", "PostgreSQL"),
     ] {
         let relative = Path::new("migrations").join(driver).join(&filename);
+        let rollback = Path::new("rollbacks").join(driver).join(&filename);
         ensure!(
             project::read_optional(root, &relative)?.is_none(),
             "migration already exists"
         );
+        ensure!(
+            project::read_optional(root, &rollback)?.is_none(),
+            "rollback companion already exists"
+        );
         created.push(relative.clone());
+        created.push(rollback.clone());
         changes.push(FileChange {
             relative,
             before: None,
             after: templates::migration(name, display, counterpart),
+            private: false,
+        });
+        changes.push(FileChange {
+            relative: rollback,
+            before: None,
+            after: templates::rollback(name, display, counterpart),
             private: false,
         });
     }
@@ -396,6 +474,7 @@ mod tests {
             "src/middleware/mod.rs",
             "src/repositories/postgres/mod.rs",
             "src/repositories/mysql/mod.rs",
+            "src/seeders/mod.rs",
         ] {
             write(
                 root.path(),
@@ -407,6 +486,11 @@ mod tests {
             root.path(),
             "src/repositories/mod.rs",
             "#[cfg(feature = \"postgres\")]\npub mod postgres;\n#[cfg(feature = \"mysql\")]\npub mod mysql;\n",
+        );
+        write(
+            root.path(),
+            "src/seeders/mod.rs",
+            "pub mod database_seeder;\n\nuse anyhow::bail;\nuse crate::database::DatabasePool;\n\npub async fn run(database: &DatabasePool, class: &str) -> anyhow::Result<()> {\n    match class {\n        \"DatabaseSeeder\" => database_seeder::run(database).await,\n        // ARTISAN_SEEDER_REGISTRY\n        _ => bail!(\"unknown seeder\"),\n    }\n}\n",
         );
         root
     }
@@ -474,6 +558,11 @@ mod tests {
                 Kind::Middleware,
                 "AuditMiddleware",
                 "src/middleware/audit.rs",
+            ),
+            (
+                Kind::Seeder,
+                "CustomerSeeder",
+                "src/seeders/customer_seeder.rs",
             ),
         ] {
             let created = run(root.path(), kind, name).unwrap();
@@ -704,7 +793,9 @@ mod tests {
             first,
             [
                 PathBuf::from("migrations/postgres/20270101000001_create_customers_table.sql"),
+                PathBuf::from("rollbacks/postgres/20270101000001_create_customers_table.sql"),
                 PathBuf::from("migrations/mysql/20270101000001_create_customers_table.sql"),
+                PathBuf::from("rollbacks/mysql/20270101000001_create_customers_table.sql"),
             ]
         );
         let second = run_at(root.path(), Kind::Migration, "add_customer_notes", now()).unwrap();
@@ -712,29 +803,37 @@ mod tests {
             second[0],
             PathBuf::from("migrations/postgres/20270101000002_add_customer_notes.sql")
         );
-        assert_eq!(second[0].file_name(), second[1].file_name());
-        for path in first.into_iter().chain(second) {
-            let contents = fs::read_to_string(root.path().join(path)).unwrap();
-            assert!(
-                contents
-                    .lines()
-                    .all(|line| line.trim().is_empty() || line.starts_with("--"))
-            );
-            assert!(contents.contains("both"));
-            for requirement in [
-                "docs/design/<feature>.md",
-                "people.person_id, statuses.status_id",
-                "<entity>_id primary key",
-                "Uuid::now_v7()",
-                "CHAR(36) CHARACTER SET ascii COLLATE ascii_bin",
-                "indexes before feature code",
-                "versioned, scoped cursors",
-                "EXPLAIN plans",
-            ] {
+        assert_eq!(second[0].file_name(), second[2].file_name());
+        assert_eq!(second[1].file_name(), second[3].file_name());
+        for paths in [first, second] {
+            for (index, path) in paths.into_iter().enumerate() {
+                let contents = fs::read_to_string(root.path().join(path)).unwrap();
                 assert!(
-                    contents.contains(requirement),
-                    "migration scaffold omitted {requirement:?}"
+                    contents
+                        .lines()
+                        .all(|line| line.trim().is_empty() || line.starts_with("--"))
                 );
+                assert!(contents.contains("SCAFFOLD ONLY"));
+                if index % 2 == 0 {
+                    for requirement in [
+                        "docs/design/<feature>.md",
+                        "people.person_id, statuses.status_id",
+                        "<entity>_id primary key",
+                        "Uuid::now_v7()",
+                        "CHAR(36) CHARACTER SET ascii COLLATE ascii_bin",
+                        "indexes before feature code",
+                        "versioned, scoped cursors",
+                        "EXPLAIN plans",
+                    ] {
+                        assert!(
+                            contents.contains(requirement),
+                            "migration scaffold omitted {requirement:?}"
+                        );
+                    }
+                } else {
+                    assert!(contents.contains("rollback"));
+                    assert!(contents.contains("MySQL DDL implicitly commits"));
+                }
             }
         }
     }

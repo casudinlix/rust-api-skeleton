@@ -39,7 +39,7 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
     ] {
         fs::copy(original.join(filename), root.join(filename)).unwrap();
     }
-    for directory in ["src", "migrations", "vendor"] {
+    for directory in ["src", "migrations", "rollbacks", "vendor"] {
         copy_directory(&original.join(directory), &root.join(directory));
     }
     let route = fs::read(root.join("src/routes/api.rs")).unwrap();
@@ -60,6 +60,7 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
         ("make:middleware", "AuditMiddleware"),
         ("make:migration", "create_customers_table"),
         ("make:migration", "create_people_table"),
+        ("make:seeder", "CustomerSeeder"),
     ] {
         successful(
             Command::new(env!("CARGO_BIN_EXE_artisan"))
@@ -79,6 +80,28 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
             request.contains(required),
             "generated request omitted validation contract {required:?}"
         );
+    }
+
+    let seeder = fs::read_to_string(root.join("src/seeders/customer_seeder.rs")).unwrap();
+    assert!(seeder.contains("pub async fn run"));
+    let registry = fs::read_to_string(root.join("src/seeders/mod.rs")).unwrap();
+    assert!(registry.contains("\"CustomerSeeder\" => customer_seeder::run(database).await"));
+
+    for driver in ["postgres", "mysql"] {
+        let rollback_dir = root.join("rollbacks").join(driver);
+        let rollback_files: Vec<_> = fs::read_dir(&rollback_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains("create_customers_table")
+            })
+            .collect();
+        assert_eq!(rollback_files.len(), 1);
+        let contents = fs::read_to_string(rollback_files[0].path()).unwrap();
+        assert!(contents.contains("SCAFFOLD ONLY"));
     }
 
     let controller = fs::read_to_string(root.join("src/handlers/customer_handler.rs")).unwrap();

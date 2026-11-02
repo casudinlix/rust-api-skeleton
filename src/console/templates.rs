@@ -223,6 +223,21 @@ pub async fn handle(_request: Request, _next: Next) -> AppResult<Response> {
     .to_owned()
 }
 
+pub(super) fn seeder(class: &str) -> String {
+    r#"use crate::database::DatabasePool;
+
+/// Keep seeds deterministic, idempotent where practical, and bounded.
+/// Do not embed production credentials, tokens, or personal data.
+/// Use explicit parameterized SQL or repository/service helpers appropriate
+/// for deterministic seed data. Large imports belong in dedicated jobs/tools.
+pub async fn run(_database: &DatabasePool) -> anyhow::Result<()> {
+    // Implement __CLASS__ here.
+    Ok(())
+}
+"#
+    .replace("__CLASS__", class)
+}
+
 pub(super) fn migration(name: &str, driver: &str, counterpart: &str) -> String {
     format!(
         "-- {driver} migration: {name}\n\
@@ -240,5 +255,17 @@ pub(super) fn migration(name: &str, driver: &str, counterpart: &str) -> String {
          -- Plan explicit minimal column projections, access scope and bounded relation batches.\n\
          -- Lists use versioned, scoped cursors with immutable sort keys and the PK tie-breaker.\n\
          -- Record query budgets and verify EXPLAIN plans with representative data on both drivers.\n\n"
+    )
+}
+
+pub(super) fn rollback(name: &str, driver: &str, counterpart: &str) -> String {
+    format!(
+        "-- {driver} rollback: {name}\n\
+         -- SCAFFOLD ONLY: replace this entire scaffold with executable rollback SQL.\n\
+         -- This file is NOT tracked by SQLx checksums, but it is part of the release contract.\n\
+         -- Keep it paired with the forward migration and the {counterpart} rollback.\n\
+         -- Rollback is destructive and cannot recreate deleted data unless you explicitly do so.\n\
+         -- MySQL DDL implicitly commits; design rollback steps to tolerate partial failure.\n\
+         -- Never delete/rename this companion after its migration is released.\n\n"
     )
 }

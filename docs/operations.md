@@ -18,6 +18,13 @@ dependency aktif yang gagal menghasilkan `NOT READY` dan exit nonzero.
 
 ## Proses dan database
 
+Untuk rollback/fresh/seeding gunakan source checkout yang memiliki direktori
+`rollbacks/` dan binary Artisan. Hentikan API/worker/scheduler/relay sebelum
+rollback schema production. Backup lebih dahulu; MySQL DDL melakukan implicit
+commit dan rollback multi-statement tidak atomik. Production memerlukan
+`FORCE=1`. Lihat [database workflow](database-workflow.md).
+
+
 Jalankan `api`, `worker`, dan `scheduler` sebagai service terpisah. Worker Redis
 menjalankan relay outbox secara default; `relay` dapat dikelola sebagai service
 tersendiri dengan `QUEUE_RELAY_ENABLED=false` pada worker. Semua proses memakai

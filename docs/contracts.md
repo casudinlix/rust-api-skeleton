@@ -78,6 +78,12 @@ behavior is documented in README; update this file when an interface changes.
 - `DatabaseConfig` Clone: `driver: DatabaseDriver`, `url: String`,
   `max_connections: u32`, `min_connections: u32`, `acquire_timeout_secs: u64`,
   `idle_timeout_secs: u64`. Methods `validate() -> anyhow::Result<()>`.
+- Migration rollback contract keeps forward SQLx files immutable and pairs each
+  version with `rollbacks/<driver>/<same-version-and-name>.sql`. Artisan builds a
+  temporary reversible SQLx source for rollback/fresh; scaffold rollback SQL is
+  rejected. Production destructive commands require explicit force.
+- `seeders::run(database, class)` dispatches only explicitly registered classes;
+  default `DatabaseSeeder` is a no-op in the generic skeleton.
 - `database::DatabasePool` Clone enum with feature-gated `Postgres(PgPool)` and
   `Mysql(MySqlPool)` variants. Async `connect(&DatabaseConfig) -> anyhow::Result<Self>`,
   `ping(&self) -> AppResult<()>`, `ready(&self) -> AppResult<()>`,

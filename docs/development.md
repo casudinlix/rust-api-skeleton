@@ -81,6 +81,11 @@ Jalankan `make help` untuk daftar singkat.
 | `make relay` | Jalankan relay outbox terpisah untuk driver Redis |
 | `make scheduler` | Jalankan scheduler saja |
 | `make migrate` | Terapkan migration untuk driver yang dipilih |
+| `make migrate-rollback STEP=1` | Rollback migration terbaru melalui companion SQL |
+| `make migrate-fresh` | Rollback semua migration dikenal lalu migrate ulang |
+| `make migrate-fresh SEED=1` | Fresh lalu jalankan `DatabaseSeeder` |
+| `make db-seed CLASS=CustomerSeeder` | Jalankan seeder class yang terdaftar |
+| `make seeder NAME=CustomerSeeder` | Buat dan registrasikan scaffold seeder |
 | `make storage-link` | Buat `public/storage` ke `FILESYSTEM_ROOT/public` |
 | `make controller NAME=CustomerController` | Buat controller/handler JSON |
 | `make model NAME=Customer` | Buat model domain |
@@ -90,7 +95,7 @@ Jalankan `make help` untuk daftar singkat.
 | `make repository NAME=CustomerRepository` | Buat trait + adapter PostgreSQL dan MySQL |
 | `make job NAME=SendInvoiceJob` | Buat payload dan handler job |
 | `make middleware NAME=AuditMiddleware` | Buat scaffold middleware |
-| `make migration NAME=create_customers_table` | Buat pasangan file migration kedua dialect |
+| `make migration NAME=create_customers_table` | Buat forward + rollback companion untuk kedua dialect |
 | `make key` | Buat key jika belum ada/masih placeholder |
 | `make key FORCE=1` | Rotasi signing key yang sudah valid |
 | `make require PACKAGE=csv@1` | Tambah dependency melalui `cargo add` |
@@ -426,3 +431,19 @@ Suite tersebut membuat seluruh jenis scaffold pada salinan project sementara,
 lalu memverifikasi bahwa hasilnya dapat dikompilasi. Test ditandai ignored supaya
 `make check` tidak menjalankan build Cargo bersarang secara otomatis. Tidak ada
 database atau Redis yang diperlukan untuk pengujian ini.
+
+
+## Rollback, fresh, dan seeder
+
+Migration baru wajib memiliki rollback companion untuk kedua driver. Generator
+`make migration` membuat empat file sekaligus; isi forward dan rollback SQL
+sebelum migration diterapkan. Companion yang masih scaffold ditolak oleh
+rollback/fresh.
+
+`migrate:rollback` hanya berjalan dari schema yang sepenuhnya current.
+`migrate:fresh` boleh mengembalikan migration set yang dikenal ke nol lalu
+migrate ulang. Pada production keduanya memerlukan `FORCE=1`.
+
+Default `DatabaseSeeder` tidak menulis apa pun. `make seeder` membuat class
+terdaftar secara eksplisit; jalankan dengan `make db-seed CLASS=...`.
+Lihat [database-workflow.md](database-workflow.md).

@@ -1,3 +1,4 @@
+mod database;
 mod doctor;
 mod generate;
 mod hooks;
@@ -36,6 +37,38 @@ enum Command {
     #[command(name = "hooks:install")]
     HooksInstall {
         /// Replace an existing local core.hooksPath setting.
+        #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
+        force: bool,
+    },
+    /// Roll back the latest applied migration(s) using companion rollback SQL.
+    #[command(name = "migrate:rollback")]
+    MigrateRollback {
+        /// Number of latest migrations to roll back from a fully current schema.
+        #[arg(long, env = "ARTISAN_STEP", default_value_t = 1, value_parser = clap::value_parser!(usize).range(1..=100))]
+        step: usize,
+        /// Allow destructive rollback in production.
+        #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
+        force: bool,
+    },
+    /// Roll back all known migrations, migrate from zero, and optionally seed.
+    #[command(name = "migrate:fresh")]
+    MigrateFresh {
+        /// Run the default DatabaseSeeder after migrating.
+        #[arg(long, env = "ARTISAN_SEED", value_parser = BoolishValueParser::new())]
+        seed: bool,
+        /// Run a registered seeder class after migrating; implies --seed.
+        #[arg(long, env = "ARTISAN_CLASS", hide_env_values = true, value_name = "CLASS")]
+        seeder: Option<String>,
+        /// Allow destructive fresh migration in production.
+        #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
+        force: bool,
+    },
+    /// Run the default DatabaseSeeder or a registered --class.
+    #[command(name = "db:seed")]
+    DbSeed {
+        #[arg(long, env = "ARTISAN_CLASS", hide_env_values = true, value_name = "CLASS")]
+        class: Option<String>,
+        /// Allow data seeding in production.
         #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
         force: bool,
     },
@@ -89,9 +122,12 @@ enum Command {
     /// Generate a middleware scaffold; implement its policy before attaching it.
     #[command(name = "make:middleware")]
     Middleware(Name),
-    /// Generate paired SQL stubs; document table/PK mapping and indexes before implementing both.
+    /// Generate forward + rollback SQL stubs for PostgreSQL and MySQL.
     #[command(name = "make:migration")]
     Migration(Name),
+    /// Generate and register a named database seeder scaffold.
+    #[command(name = "make:seeder")]
+    Seeder(Name),
     /// Add a crates.io package with Cargo (e.g. serde@1).
     Require {
         #[command(flatten)]
@@ -160,6 +196,22 @@ pub async fn run() -> anyhow::Result<()> {
             hooks::install(&root, force)?;
             println!("Git hooks enabled from .githooks.");
         }
+        Command::MigrateRollback { step, force } => {
+            let _guard = project::lock(&root)?;
+            database::rollback(&root, step, force).await?;
+        }
+        Command::MigrateFresh {
+            seed,
+            seeder,
+            force,
+        } => {
+            let _guard = project::lock(&root)?;
+            database::fresh(&root, seed, seeder.as_deref(), force).await?;
+        }
+        Command::DbSeed { class, force } => {
+            let _guard = project::lock(&root)?;
+            database::seed(class.as_deref(), force).await?;
+        }
         Command::Serve {
             scheduler,
             shutdown_timeout,
@@ -212,6 +264,7 @@ pub async fn run() -> anyhow::Result<()> {
                 Command::Job(name) => (generate::Kind::Job, name.name),
                 Command::Middleware(name) => (generate::Kind::Middleware, name.name),
                 Command::Migration(name) => (generate::Kind::Migration, name.name),
+                Command::Seeder(name) => (generate::Kind::Seeder, name.name),
                 _ => unreachable!("non-generator command was already handled"),
             };
             let _guard = project::lock(&root)?;
@@ -219,7 +272,11 @@ pub async fn run() -> anyhow::Result<()> {
                 println!("Created {}", relative.display());
             }
             if kind == generate::Kind::Migration {
-                println!("Complete SQL in BOTH database files before running make migrate.");
+                println!(
+                    "Complete forward AND rollback SQL for BOTH databases before running make migrate."
+                );
+            } else if kind == generate::Kind::Seeder {
+                println!("Seeder scaffold registered. Implement idempotent/bounded seed data before use.");
             } else {
                 println!(
                     "Rust modules registered. Implement the scaffold and wire routes, dependencies, or job dispatch explicitly."

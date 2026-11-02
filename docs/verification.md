@@ -552,3 +552,26 @@ The user's local Rust 1.99.1 environment had already demonstrated that
 `make install` compiled successfully before this change. Run `make precommit`
 and `make doctor` locally after pulling this revision and record the results
 before creating the first release tag.
+
+
+## Migration rollback/fresh and seeder tooling — 2026-11-02
+
+Added:
+
+- immutable forward SQLx migrations retained unchanged;
+- companion rollback SQL under `rollbacks/postgres` and `rollbacks/mysql`;
+- `artisan migrate:rollback --step` / `make migrate-rollback STEP=...`;
+- `artisan migrate:fresh` with optional default/named seeding;
+- `artisan db:seed --class` and `make db-seed CLASS=...`;
+- `make:seeder` generator with explicit registry insertion;
+- production force guards for destructive/write commands;
+- scaffold rollback rejection;
+- disposable PostgreSQL/MySQL maintenance regression wired into the live DB matrix.
+
+SQLx 0.8.6 simple migration history was intentionally not renamed to reversible
+files. Artisan constructs a temporary reversible source from unchanged forward SQL
+and companion rollback SQL so historical forward checksums remain intact.
+
+This revision still requires local execution after pull: run `make precommit`,
+then `make test-postgres` and `make test-mysql` on disposable databases. MySQL
+rollback deserves particular attention because DDL implicitly commits.

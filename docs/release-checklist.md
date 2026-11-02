@@ -52,7 +52,9 @@ TEST_DATABASE_URL=... make test-postgres
 TEST_DATABASE_URL=... make test-mysql
 ```
 
-Verifikasi migration fresh dan upgrade path yang relevan.
+Verifikasi migration fresh, latest rollback → forward migrate lagi, seeder default,
+serta upgrade path yang relevan. `make test-postgres` dan `make test-mysql`
+menjalankan regression `database_maintenance` pada database disposable.
 
 ## 4. Redis matrix
 

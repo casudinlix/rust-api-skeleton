@@ -18,6 +18,7 @@ pub mod observability;
 pub mod repositories;
 pub mod routes;
 pub mod schedulers;
+pub mod seeders;
 pub mod services;
 pub mod state;
 pub mod swagger;

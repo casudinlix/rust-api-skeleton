@@ -26,7 +26,7 @@ impl Fixture {
                 &path,
                 r#"#!/bin/sh
 printf '%s\000' "$@" > "$CAPTURE_ARGS"
-printf '%s\000' "${ARTISAN_NAME-unset}" "${ARTISAN_PACKAGE-unset}" "${ARTISAN_FEATURES-unset}" "${ARTISAN_DEV-unset}" "${ARTISAN_SCHEDULER-unset}" "${ARTISAN_FORCE-unset}" "${ARTISAN_SHUTDOWN_TIMEOUT-unset}" "${DB_DRIVER-unset}" > "$CAPTURE_ENV"
+printf '%s\000' "${ARTISAN_NAME-unset}" "${ARTISAN_PACKAGE-unset}" "${ARTISAN_FEATURES-unset}" "${ARTISAN_DEV-unset}" "${ARTISAN_SCHEDULER-unset}" "${ARTISAN_FORCE-unset}" "${ARTISAN_SEED-unset}" "${ARTISAN_STEP-unset}" "${ARTISAN_CLASS-unset}" "${ARTISAN_SHUTDOWN_TIMEOUT-unset}" "${DB_DRIVER-unset}" > "$CAPTURE_ENV"
 "#,
             )
             .expect("write stub executable");
@@ -94,6 +94,9 @@ fn artisan_wrappers_forward_the_expected_subcommands() {
         ("serve", "serve"),
         ("key", "key:generate"),
         ("storage-link", "storage:link"),
+        ("migrate-rollback", "migrate:rollback"),
+        ("migrate-fresh", "migrate:fresh"),
+        ("db-seed", "db:seed"),
         ("controller", "make:controller"),
         ("model", "make:model"),
         ("request", "make:request"),
@@ -103,6 +106,7 @@ fn artisan_wrappers_forward_the_expected_subcommands() {
         ("job", "make:job"),
         ("middleware", "make:middleware"),
         ("migration", "make:migration"),
+        ("seeder", "make:seeder"),
         ("require", "require"),
         ("remove", "remove"),
         ("update", "update"),
@@ -127,6 +131,9 @@ fn wrapper_options_are_passed_as_environment_values() {
         "DEV=1",
         "SCHEDULER=1",
         "FORCE=1",
+        "SEED=1",
+        "STEP=3",
+        "CLASS=CustomerSeeder",
         "SHUTDOWN_TIMEOUT=12",
     ]));
     assert_eq!(
@@ -138,6 +145,9 @@ fn wrapper_options_are_passed_as_environment_values() {
             "1",
             "1",
             "1",
+            "1",
+            "3",
+            "CustomerSeeder",
             "12",
             "unset",
         ]
@@ -154,6 +164,7 @@ fn literal_make_and_shell_expressions_never_execute() {
         ("DB_FEATURES", "docker-build"),
         ("DB_DRIVER", "docker-db"),
         ("NAME", "check"),
+        ("CLASS", "db-seed"),
     ] {
         let make_marker = fixture.root().join(format!("make-marker-{variable}"));
         let shell_marker = fixture.root().join(format!("shell-marker-{variable}"));

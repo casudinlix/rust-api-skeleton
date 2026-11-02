@@ -192,8 +192,12 @@ generator tidak mengalahkan aturan ini.
   claim-token and unexpired-lease guards. Use safe error categories in job records.
 - Keep CPU-heavy password operations in bounded blocking tasks, with permits
   retained until the actual task completes, even when an HTTP waiter is canceled.
-- Add new migration versions to both database directories. Do not edit applied
-  migrations. Update readiness compatibility policy deliberately when changing rollout behavior.
+- Add new migration versions to both database directories **dan rollback companion
+  dengan version/name yang sama di `rollbacks/postgres` dan `rollbacks/mysql`**.
+  Do not edit applied migrations. Rollback scaffold/comment-only tidak boleh
+  dianggap selesai. Update readiness compatibility policy deliberately when changing rollout behavior.
+- Seeder baru memakai `make seeder`, explicit registry, bounded/idempotent behavior,
+  dan tidak boleh menanam credential/default admin atau production data.
 - Prefer small modules and explicit types; use `AppResult` for application paths
   and `anyhow::Result` for bootstrap/process boundaries. No unsafe code.
 - Keep the skeleton domain-neutral. Do not add project-specific RBAC, tenancy,

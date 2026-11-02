@@ -16,6 +16,8 @@ Format mengikuti Keep a Changelog dan versi mengikuti Semantic Versioning.
   `core.hooksPath=.githooks` secara eksplisit.
 - `make precommit` sebagai local quality gate sebelum commit.
 - Release checklist untuk candidate `v0.1.0`.
+- `migrate:rollback`, `migrate:fresh`, companion rollback SQL untuk kedua DB,
+  `db:seed --class`, dan generator `make:seeder` dengan registry eksplisit.
 
 ## Release policy
 

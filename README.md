@@ -27,8 +27,8 @@ untuk perubahan skema, kontrak API/cursor, bukti indeks, dan upgrade data lama.
 - Queue database/Redis yang dapat dipilih secara independen dari cache; Apalis
   Redis, outbox SQL, relay terkelola/terpisah, dan concurrency worker terbatas.
 - Command bergaya Laravel melalui `make` dan binary Rust `artisan`: install,
-  doctor, versioned pre-commit hook, server + worker, generator modul, migration,
-  key, dan dependency management.
+  doctor, versioned pre-commit hook, migrate/rollback/fresh, seeder class,
+  server + worker, generator modul, key, dan dependency management.
 - Register/login JWT HS256, Argon2id, current-user guard, admin guard.
 - CRUD user untuk admin, profile sendiri untuk user, cursor pagination.
 - Normalisasi sebelum validasi, JSON envelope, error terpusat, CORS allowlist.
@@ -134,8 +134,10 @@ Buka `http://127.0.0.1:3000/docs`; spec mentah tersedia di
 
 Migration tidak berjalan otomatis ketika API/worker/relay/scheduler boot. Jalankan
 `migrate` sebagai langkah deployment sebelum menjalankan atau mengganti service.
-Binary `migrate` hanya menerapkan migration maju; tidak menyediakan reset database
-atau rollback destruktif otomatis.
+Untuk development/maintenance tersedia `make migrate-rollback`, `make migrate-fresh`,
+dan `make db-seed [CLASS=...]`; destructive command production memerlukan
+`FORCE=1`. Detail rollback companion dan seeder ada di
+[panduan database](docs/database-workflow.md).
 
 Lihat [panduan command development](docs/development.md) untuk generator,
 penambahan package, rotasi key, dan contoh alur membuat fitur. Filesystem,

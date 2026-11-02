@@ -50,6 +50,9 @@ impl Fixture {
             "ARTISAN_FEATURES",
             "ARTISAN_DEV",
             "ARTISAN_FORCE",
+            "ARTISAN_SEED",
+            "ARTISAN_STEP",
+            "ARTISAN_CLASS",
             "ARTISAN_SCHEDULER",
             "ARTISAN_SHUTDOWN_TIMEOUT",
         ] {
@@ -92,6 +95,10 @@ fn help_works_without_project_or_application_configuration() {
             && help.contains("install")
             && help.contains("doctor")
             && help.contains("hooks:install")
+            && help.contains("migrate:rollback")
+            && help.contains("migrate:fresh")
+            && help.contains("db:seed")
+            && help.contains("make:seeder")
             && help.contains("serve")
     );
 }
