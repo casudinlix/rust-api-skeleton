@@ -593,3 +593,22 @@ rejecting `TEST_DATABASE_URL` even when it existed in `.env`.
 The user-provided test output also showed the current pre-commit run stopping at
 `cargo fmt --check`; that is a separate formatting gate and must be resolved with
 `make fmt` before claiming the pre-commit gate passed.
+
+
+## Local matrix follow-up — 2026-11-02
+
+User local execution on Rust/Cargo 1.99.1 confirmed:
+
+- doctor READY with PostgreSQL and migration ledger ready;
+- MySQL and PostgreSQL API, migration-maintenance, outbox, and database-queue tests passed;
+- migration-maintenance verified fresh -> rollback latest -> migrate forward -> DatabaseSeeder on both drivers;
+- Redis cache suite: 7 passed;
+- Redis transport suite: 6 passed;
+- Redis queue integration passed for MySQL and PostgreSQL.
+
+Two remaining failures were identified from the same run and fixed in the next change:
+
+- Clippy `collapsible_if` in filesystem destination validation;
+- `database_users` query-budget helper still read `TEST_DATABASE_URL` directly instead of the driver-aware dotenv test URL helper, causing `NotPresent` for both driver-specific test configurations.
+
+Re-run `make precommit`, `make test-mysql`, and `make test-postgres` after pulling the fix before marking the release gate complete. The same doctor output still reported the repository pre-commit hook as not installed, so run `make hooks-install` once per clone.

@@ -76,10 +76,10 @@ impl LocalStorage {
         ensure_directory(parent).await?;
         reject_symlink_chain(&base, &relative).await?;
 
-        if let Ok(metadata) = tokio::fs::symlink_metadata(&path).await {
-            if metadata.file_type().is_symlink() || metadata.is_dir() {
-                return Err(StorageError::InvalidPath);
-            }
+        if let Ok(metadata) = tokio::fs::symlink_metadata(&path).await
+            && (metadata.file_type().is_symlink() || metadata.is_dir())
+        {
+            return Err(StorageError::InvalidPath);
         }
 
         let temporary = parent.join(format!(".storage-{}.tmp", Uuid::now_v7()));

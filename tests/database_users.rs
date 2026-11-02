@@ -581,7 +581,13 @@ fn assert_public_projection(queries: &[ObservedQuery], expected_count: usize) {
 async fn assert_query_budget_and_projections(database: &DatabasePool) {
     // Production pools disable statement logging. Enable it only on this test
     // pool so the assertion observes executed SQL, with an isolated subscriber.
-    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    let url = match database {
+        #[cfg(feature = "postgres")]
+        DatabasePool::Postgres(_) => support::database_url(DatabaseDriver::Postgres),
+        #[cfg(feature = "mysql")]
+        DatabasePool::Mysql(_) => support::database_url(DatabaseDriver::Mysql),
+    }
+    .expect("load test database URL");
     let observed_database = match database {
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(_) => DatabasePool::Postgres(
