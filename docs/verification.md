@@ -526,3 +526,29 @@ The current execution environment still does not provide Rust/Cargo. Therefore
 `cargo fmt`, Clippy, compilation, `make check`, HTTP tests and Docker build
 were not executed here. Static source/config review is not runtime evidence; run
 the normal Rust 1.99.1 verification matrix before tagging.
+
+
+## Doctor, pre-commit, and release discipline — 2026-11-02
+
+Added repository-level quality/release foundations:
+
+- `artisan doctor` / `make doctor` runtime preflight;
+- DB connection + exact migration readiness;
+- optional Redis cache/queue connectivity checks only when enabled;
+- private storage write/delete probe and public storage-link status;
+- optional file-log directory write probe;
+- Swagger/observability status without exposing secrets;
+- versioned `.githooks/pre-commit`;
+- explicit `artisan hooks:install` / `make hooks-install` with safe refusal to
+  replace a pre-existing custom `core.hooksPath` unless forced;
+- `make precommit` running `make check` plus scaffold verification;
+- release checklist and changelog baseline.
+
+The pre-commit gate intentionally avoids external DB/Redis requirements; runtime
+dependency checks remain doctor/release concerns.
+
+These changes were authored without executing Rust in this assistant environment.
+The user's local Rust 1.99.1 environment had already demonstrated that
+`make install` compiled successfully before this change. Run `make precommit`
+and `make doctor` locally after pulling this revision and record the results
+before creating the first release tag.

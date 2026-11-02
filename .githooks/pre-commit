@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+cd "$ROOT"
+
+printf '%s\n' '[pre-commit] checking staged diff'
+git diff --cached --check
+
+printf '%s\n' '[pre-commit] running repository quality gate'
+exec make --no-print-directory precommit

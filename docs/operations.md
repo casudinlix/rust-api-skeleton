@@ -1,5 +1,21 @@
 # Panduan operasi
 
+## Preflight deployment
+
+Sebelum menjalankan service pada environment baru:
+
+```bash
+make doctor
+```
+
+`doctor` memeriksa toolchain, `.env`/configuration, koneksi database, exact
+migration readiness, Redis cache/queue bila diaktifkan, filesystem write/delete,
+storage link, file logging, Swagger, observability ports, dan status Git hook.
+Redis yang memang disabled serta Swagger OFF dilaporkan `SKIP`; storage link atau
+pre-commit yang opsional dapat menjadi `WARN`. Database/migration, storage, atau
+dependency aktif yang gagal menghasilkan `NOT READY` dan exit nonzero.
+
+
 ## Proses dan database
 
 Jalankan `api`, `worker`, dan `scheduler` sebagai service terpisah. Worker Redis

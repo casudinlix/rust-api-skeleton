@@ -62,6 +62,10 @@ behavior is documented in README; update this file when an interface changes.
   reference routes. Swagger routes are infrastructure exceptions to the business
   success/error envelope; when disabled they are absent and fall through to the
   normal 404 envelope. Protected operations declare `bearerAuth`.
+- Developer/release tooling contract: `artisan doctor` performs sanitized runtime
+  preflight; `.githooks/pre-commit` executes staged-diff validation plus
+  `make precommit`; `hooks:install` only changes repository-local `core.hooksPath`
+  and refuses to replace another hooks path unless explicitly forced.
 - `observability::ProcessProbe` owns process readiness plus the shared metrics
   registry. Bootstrap runs a separate observability listener for API/worker/
   scheduler/relay. `/ready` requires exact DB migration readiness plus process

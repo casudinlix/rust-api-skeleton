@@ -87,7 +87,13 @@ fn help_works_without_project_or_application_configuration() {
         .unwrap();
     success(&output);
     let help = String::from_utf8(output.stdout).unwrap();
-    assert!(help.contains("make:controller") && help.contains("install") && help.contains("serve"));
+    assert!(
+        help.contains("make:controller")
+            && help.contains("install")
+            && help.contains("doctor")
+            && help.contains("hooks:install")
+            && help.contains("serve")
+    );
 }
 
 #[test]

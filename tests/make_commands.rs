@@ -89,6 +89,8 @@ fn artisan_wrappers_forward_the_expected_subcommands() {
     for (target, command) in [
         ("install", "install"),
         ("setup", "install"),
+        ("doctor", "doctor"),
+        ("hooks-install", "hooks:install"),
         ("serve", "serve"),
         ("key", "key:generate"),
         ("storage-link", "storage:link"),

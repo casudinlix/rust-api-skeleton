@@ -44,7 +44,7 @@ export TEST_DATABASE_URL TEST_REDIS_URL
 export MAKE_DB_DRIVER := $(value DB_DRIVER)
 export MAKE_DB_FEATURES := $(value DB_FEATURES)
 
-.PHONY: help install setup serve key storage-link require remove update \
+.PHONY: help install setup doctor hooks-install precommit serve key storage-link require remove update \
         controller model request dto service repository job middleware migration \
         run worker relay scheduler migrate fmt lint test check check-drivers \
         test-postgres test-mysql test-redis test-redis-transport \
@@ -54,6 +54,9 @@ export MAKE_DB_FEATURES := $(value DB_FEATURES)
 help:
 	@printf '%s\n' \
 	  'install       Initialize .env/key and build locked dependencies (setup is an alias)' \
+	  'doctor        Runtime preflight: config, DB/migrations, Redis, storage, logging, hooks' \
+	  'hooks-install Configure versioned .githooks/pre-commit [FORCE=1 replaces custom hooksPath]' \
+	  'precommit     Local Git quality gate: check + scaffold verification' \
 	  'serve         Run API + worker together (SCHEDULER=1 adds scheduler)' \
 	  'controller    Generate JSON handler: NAME=CustomerController' \
 	  'model         Generate model with UUIDv7 customer_id: NAME=Customer (singular entity)' \
@@ -92,6 +95,13 @@ help:
 install:
 	cargo run --locked --bin artisan -- install
 setup: install
+doctor:
+	cargo run --locked --bin artisan -- doctor
+hooks-install:
+	cargo run --locked --bin artisan -- hooks:install
+precommit:
+	$(MAKE) check
+	$(MAKE) test-scaffolds
 serve:
 	cargo run --locked --bin artisan -- serve
 key:

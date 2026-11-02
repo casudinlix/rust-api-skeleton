@@ -27,7 +27,8 @@ untuk perubahan skema, kontrak API/cursor, bukti indeks, dan upgrade data lama.
 - Queue database/Redis yang dapat dipilih secara independen dari cache; Apalis
   Redis, outbox SQL, relay terkelola/terpisah, dan concurrency worker terbatas.
 - Command bergaya Laravel melalui `make` dan binary Rust `artisan`: install,
-  server + worker, generator modul, migration, key, dan dependency management.
+  doctor, versioned pre-commit hook, server + worker, generator modul, migration,
+  key, dan dependency management.
 - Register/login JWT HS256, Argon2id, current-user guard, admin guard.
 - CRUD user untuk admin, profile sendiri untuk user, cursor pagination.
 - Normalisasi sebelum validasi, JSON envelope, error terpusat, CORS allowlist.
@@ -67,6 +68,7 @@ make install
 `make install` menyiapkan `.env` dari contoh bila belum ada, menghasilkan
 `JWT_SECRET` acak bila masih kosong/placeholder, lalu mengambil dan membangun
 dependency sesuai `Cargo.lock`. Konfigurasi dan key yang sudah valid dipertahankan.
+Aktifkan quality gate Git sekali per clone dengan `make hooks-install`.
 Untuk public runtime files, jalankan `make storage-link` setelah init bila bekerja
 langsung dari source tree.
 Secret tidak dicetak ke terminal. Isi `DATABASE_URL` untuk database yang sudah
@@ -86,6 +88,7 @@ make docker-db DB_DRIVER=postgres
 
 ```bash
 make migrate
+make doctor
 make serve
 ```
 
@@ -138,7 +141,9 @@ Lihat [panduan command development](docs/development.md) untuk generator,
 penambahan package, rotasi key, dan contoh alur membuat fitur. Filesystem,
 `storage:link`, static assets, file logging, rotation, dan custom log dijelaskan di
 [panduan filesystem/logging](docs/filesystem.md). Swagger/OpenAPI opsional
-dijelaskan di [panduan Swagger](docs/swagger.md). Untuk module
+dijelaskan di [panduan Swagger](docs/swagger.md). Pre-commit dan release gate dijelaskan di
+[panduan Git hooks](docs/git-hooks.md) serta
+[release checklist](docs/release-checklist.md). Untuk module
 pertama, gunakan [starter pattern](docs/module-init.md) dan source yang dapat
 dikompilasi di [examples/module_init.rs](examples/module_init.rs).
 

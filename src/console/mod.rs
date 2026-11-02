@@ -1,4 +1,6 @@
+mod doctor;
 mod generate;
+mod hooks;
 mod install;
 mod packages;
 mod project;
@@ -28,6 +30,15 @@ struct Cli {
 enum Command {
     /// Initialize .env and JWT key, then fetch/build locked dependencies. Does not migrate.
     Install,
+    /// Run runtime preflight checks for toolchain, configuration, dependencies and writable paths.
+    Doctor,
+    /// Configure this repository's versioned .githooks directory.
+    #[command(name = "hooks:install")]
+    HooksInstall {
+        /// Replace an existing local core.hooksPath setting.
+        #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
+        force: bool,
+    },
     /// Build once and supervise API + worker on Unix. Ctrl+C stops all processes.
     Serve {
         /// Also start the task scheduler.
@@ -138,8 +149,16 @@ pub async fn run() -> anyhow::Result<()> {
             }
             packages::fetch_and_build(&root)?;
             println!(
-                "Project initialized. Configure .env, start your database, then run make migrate and make serve."
+                "Project initialized. Configure .env, start your database, then run make migrate and make serve. Run make hooks-install once to enable the pre-commit gate."
             );
+        }
+        Command::Doctor => {
+            let _guard = project::lock(&root)?;
+            doctor::run(&root).await?;
+        }
+        Command::HooksInstall { force } => {
+            hooks::install(&root, force)?;
+            println!("Git hooks enabled from .githooks.");
         }
         Command::Serve {
             scheduler,

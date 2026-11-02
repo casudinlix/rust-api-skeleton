@@ -46,7 +46,10 @@ make serve
 Untuk MySQL, ubah `DB_DRIVER=mysql`, `DATABASE_URL`, dan `DOCKER_DATABASE_URL`
 terlebih dahulu, lalu jalankan `make docker-db DB_DRIVER=mysql`. Parameter
 `DB_DRIVER` pada `docker-db` memilih service Compose; konfigurasi aplikasi tetap
-harus sesuai. `make install` tidak membuat database dan tidak menerapkan migration. Untuk
+harus sesuai. `make install` tidak membuat database dan tidak menerapkan migration. Setelah
+clone, jalankan `make hooks-install` sekali untuk mengaktifkan pre-commit gate.
+Jalankan `make doctor` setelah database/migration siap untuk memeriksa runtime
+preflight. Untuk
 public local storage jalankan `make storage-link`; command ini idempotent dan
 tidak menimpa file/directory biasa.
 
@@ -68,6 +71,9 @@ Jalankan `make help` untuk daftar singkat.
 |---|---|
 | `make install` | Siapkan environment, key awal, dan dependency terkunci |
 | `make setup` | Alias `install` |
+| `make doctor` | Preflight toolchain, config, DB/migration, optional Redis, storage/logging dan hook |
+| `make hooks-install` | Aktifkan `.githooks/pre-commit` pada repository lokal |
+| `make precommit` | Jalankan quality gate source sebelum Git commit |
 | `make serve` | Bangun dan jalankan API + worker dalam satu terminal |
 | `make serve SCHEDULER=1` | Jalankan API + worker + scheduler |
 | `make run` | Jalankan API saja |

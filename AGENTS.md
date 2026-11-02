@@ -217,6 +217,11 @@ generator tidak mengalahkan aturan ini.
   must remain bounded; never label metrics with user/resource/job IDs, raw paths,
   tenant IDs, emails, tokens, or unbounded input. Readiness must represent the
   process backend state plus exact database migration readiness.
+- Normal local commits must pass the versioned `.githooks/pre-commit` gate or an
+  equivalent explicit `make precommit`. Do not weaken/remove the hook merely to
+  make a change pass. `--no-verify` is an emergency bypass, not acceptance evidence.
+- Run `make doctor` for deployment/runtime preflight and before release when the
+  configured database/dependencies are available. Doctor must never print secrets.
 - Run `make check` before proposing changes. Run both real-database suites when
   changing SQL, migrations, auth/repository integration, or queue behavior. Report
   unrun checks honestly; ignored tests are not evidence of integration success.
