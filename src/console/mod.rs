@@ -44,7 +44,7 @@ enum Command {
     #[command(name = "migrate:rollback")]
     MigrateRollback {
         /// Number of latest migrations to roll back from a fully current schema.
-        #[arg(long, env = "ARTISAN_STEP", default_value_t = 1, value_parser = clap::value_parser!(usize).range(1..=100))]
+        #[arg(long, env = "ARTISAN_STEP", default_value_t = 1)]
         step: usize,
         /// Allow destructive rollback in production.
         #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
