@@ -61,7 +61,8 @@ fn validate_route_path(path: &str, name: &str) -> anyhow::Result<()> {
             && !path.contains("//")
             && path
                 .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.')),
+                .all(|byte| byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'/' | b'-' | b'_' | b'.')),
         "{name} must be an absolute route path using only ASCII letters, numbers, '/', '-', '_' or '.', without a trailing slash"
     );
     Ok(())

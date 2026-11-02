@@ -38,11 +38,11 @@ pub fn install(root: &Path, force: bool) -> anyhow::Result<()> {
         );
     }
 
-    let configured = git(
-        root,
-        &["config", "--local", "core.hooksPath", HOOKS_PATH],
-    )?;
-    ensure!(configured.status.success(), "could not configure Git hooks path");
+    let configured = git(root, &["config", "--local", "core.hooksPath", HOOKS_PATH])?;
+    ensure!(
+        configured.status.success(),
+        "could not configure Git hooks path"
+    );
     Ok(())
 }
 

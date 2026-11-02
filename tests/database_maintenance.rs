@@ -84,11 +84,7 @@ async fn exercise(driver: DatabaseDriver, database_url: &str) -> Result<()> {
     Ok(())
 }
 
-async fn assert_ready(
-    driver: DatabaseDriver,
-    database_url: &str,
-    expected: bool,
-) -> Result<()> {
+async fn assert_ready(driver: DatabaseDriver, database_url: &str, expected: bool) -> Result<()> {
     let database = DatabasePool::connect(&DatabaseConfig {
         driver,
         url: database_url.to_owned(),
@@ -105,12 +101,7 @@ async fn assert_ready(
 }
 
 fn run_artisan(driver: DatabaseDriver, database_url: &str, args: &[&str]) -> Result<()> {
-    run_binary(
-        env!("CARGO_BIN_EXE_artisan"),
-        driver,
-        database_url,
-        args,
-    )
+    run_binary(env!("CARGO_BIN_EXE_artisan"), driver, database_url, args)
 }
 
 fn run_migrate(driver: DatabaseDriver, database_url: &str) -> Result<()> {

@@ -190,22 +190,24 @@ fn environment_file_check(root: &Path) -> Check {
                             return Check::new(
                                 "Environment",
                                 Status::Fail,
-                                format!(".env permissions are {mode:o}; expected private permissions"),
+                                format!(
+                                    ".env permissions are {mode:o}; expected private permissions"
+                                ),
                             );
                         }
                     }
                     Err(_) => {
-                        return Check::new(
-                            "Environment",
-                            Status::Fail,
-                            "could not inspect .env",
-                        );
+                        return Check::new("Environment", Status::Fail, "could not inspect .env");
                     }
                 }
             }
             Check::new("Environment", Status::Ok, ".env present and private")
         }
-        Ok(None) => Check::new("Environment", Status::Fail, ".env missing; run make install"),
+        Ok(None) => Check::new(
+            "Environment",
+            Status::Fail,
+            ".env missing; run make install",
+        ),
         Err(_) => Check::new(
             "Environment",
             Status::Fail,
@@ -254,7 +256,11 @@ async fn storage_check(settings: &Settings) -> Check {
         return Check::new("Storage", Status::Fail, "private disk is not writable");
     }
     match storage.delete(StorageDisk::Private, &name).await {
-        Ok(true) => Check::new("Storage", Status::Ok, "local storage write/delete probe passed"),
+        Ok(true) => Check::new(
+            "Storage",
+            Status::Ok,
+            "local storage write/delete probe passed",
+        ),
         _ => Check::new("Storage", Status::Fail, "write probe cleanup failed"),
     }
 }
@@ -307,7 +313,11 @@ fn logging_check(settings: &Settings) -> Check {
     }
 
     if fs::create_dir_all(&settings.logging.directory).is_err() {
-        return Check::new("File Logging", Status::Fail, "log directory is not writable");
+        return Check::new(
+            "File Logging",
+            Status::Fail,
+            "log directory is not writable",
+        );
     }
     match tempfile::NamedTempFile::new_in(&settings.logging.directory) {
         Ok(_) => Check::new(
@@ -318,7 +328,11 @@ fn logging_check(settings: &Settings) -> Check {
                 settings.logging.rotation, settings.logging.max_files
             ),
         ),
-        Err(_) => Check::new("File Logging", Status::Fail, "log directory is not writable"),
+        Err(_) => Check::new(
+            "File Logging",
+            Status::Fail,
+            "log directory is not writable",
+        ),
     }
 }
 
@@ -359,7 +373,12 @@ fn absolute(root: &Path, path: &Path) -> PathBuf {
 fn print_report(checks: &[Check]) {
     println!();
     for check in checks {
-        println!("{:<16} {:<5} {}", check.name, check.status.label(), check.detail);
+        println!(
+            "{:<16} {:<5} {}",
+            check.name,
+            check.status.label(),
+            check.detail
+        );
     }
     println!();
     if checks.iter().any(|check| check.status.blocks()) {

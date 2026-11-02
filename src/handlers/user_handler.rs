@@ -91,10 +91,7 @@ pub async fn delete(
         ));
     }
     state.user_service.delete(user_id).await?;
-    Ok(response::success(
-        "User deleted",
-        json!({"deleted": true}),
-    ))
+    Ok(response::success("User deleted", json!({"deleted": true})))
 }
 
 fn parse_user_id(path: Result<Path<Uuid>, PathRejection>) -> AppResult<Uuid> {

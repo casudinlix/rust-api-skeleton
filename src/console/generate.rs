@@ -574,12 +574,7 @@ mod tests {
     #[test]
     fn request_generator_enforces_validation_boundary_contract() {
         let root = fixture();
-        let created = run(
-            root.path(),
-            Kind::Request,
-            "CreateCustomerRequest",
-        )
-        .unwrap();
+        let created = run(root.path(), Kind::Request, "CreateCustomerRequest").unwrap();
         assert_eq!(
             created,
             [PathBuf::from("src/domain/dtos/create_customer_request.rs")]

@@ -338,10 +338,7 @@ async fn exercise(driver: &str) {
     )
     .await;
     assert_eq!(next_page["data"].as_array().unwrap().len(), 1);
-    assert_ne!(
-        page["data"][0]["user_id"],
-        next_page["data"][0]["user_id"]
-    );
+    assert_ne!(page["data"][0]["user_id"], next_page["data"][0]["user_id"]);
     assert!(next_page["meta"]["next_cursor"].is_null());
     assert_eq!(next_page["meta"]["has_more"], false);
     for (field, value) in [

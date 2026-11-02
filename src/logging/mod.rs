@@ -13,11 +13,7 @@ use std::{
 
 use chrono::Utc;
 use tracing_subscriber::{
-    EnvFilter, Layer,
-    filter,
-    fmt::MakeWriter,
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
+    EnvFilter, Layer, filter, fmt::MakeWriter, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 use crate::config::{
@@ -210,11 +206,13 @@ fn init_stdout(format: &str, env_filter: EnvFilter) -> anyhow::Result<()> {
 }
 
 fn safe_target(metadata: &tracing::Metadata<'_>) -> bool {
-    !metadata.target().starts_with("apalis_core")
-        && !metadata.target().starts_with("apalis_redis")
+    !metadata.target().starts_with("apalis_core") && !metadata.target().starts_with("apalis_redis")
 }
 
-fn file_writer(config: &LoggingConfig, process: &str) -> anyhow::Result<(AsyncMakeWriter, LogGuard)> {
+fn file_writer(
+    config: &LoggingConfig,
+    process: &str,
+) -> anyhow::Result<(AsyncMakeWriter, LogGuard)> {
     fs::create_dir_all(&config.directory)
         .map_err(|_| anyhow::anyhow!("could not create log directory"))?;
     let metadata = fs::symlink_metadata(&config.directory)
@@ -371,12 +369,7 @@ fn rotation_key(rotation: LogRotation) -> String {
     }
 }
 
-fn open_file(
-    directory: &Path,
-    prefix: &str,
-    rotation: LogRotation,
-    key: &str,
-) -> io::Result<File> {
+fn open_file(directory: &Path, prefix: &str, rotation: LogRotation, key: &str) -> io::Result<File> {
     let name = if rotation == LogRotation::Never {
         format!("{prefix}.log")
     } else {

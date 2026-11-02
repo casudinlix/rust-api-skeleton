@@ -268,18 +268,24 @@ mod tests {
                 .unwrap(),
             b"private"
         );
-        assert!(storage
-            .exists(StorageDisk::Public, "avatars/a.txt")
-            .await
-            .unwrap());
-        assert!(storage
-            .delete(StorageDisk::Public, "avatars/a.txt")
-            .await
-            .unwrap());
-        assert!(!storage
-            .exists(StorageDisk::Public, "avatars/a.txt")
-            .await
-            .unwrap());
+        assert!(
+            storage
+                .exists(StorageDisk::Public, "avatars/a.txt")
+                .await
+                .unwrap()
+        );
+        assert!(
+            storage
+                .delete(StorageDisk::Public, "avatars/a.txt")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !storage
+                .exists(StorageDisk::Public, "avatars/a.txt")
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -311,11 +317,7 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         let storage = storage(root.path());
         storage.prepare().await.unwrap();
-        symlink(
-            outside.path(),
-            storage.private_root().join("linked"),
-        )
-        .unwrap();
+        symlink(outside.path(), storage.private_root().join("linked")).unwrap();
 
         assert!(matches!(
             storage

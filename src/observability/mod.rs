@@ -123,7 +123,9 @@ impl Metrics {
     }
 
     pub fn http_finished(&self, status: StatusCode, elapsed: Duration) {
-        self.inner.http_requests_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .http_requests_total
+            .fetch_add(1, Ordering::Relaxed);
         self.inner
             .http_in_flight
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
@@ -147,7 +149,9 @@ impl Metrics {
     }
 
     pub fn job_started(&self) {
-        self.inner.jobs_started_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .jobs_started_total
+            .fetch_add(1, Ordering::Relaxed);
         self.inner.jobs_in_flight.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -166,13 +170,17 @@ impl Metrics {
             .fetch_add(1, Ordering::Relaxed);
         match outcome {
             JobOutcome::Completed => {
-                self.inner.jobs_completed_total.fetch_add(1, Ordering::Relaxed);
+                self.inner
+                    .jobs_completed_total
+                    .fetch_add(1, Ordering::Relaxed);
             }
             JobOutcome::HandlerFailed => {
                 self.inner.jobs_failed_total.fetch_add(1, Ordering::Relaxed);
             }
             JobOutcome::LeaseLost => {
-                self.inner.jobs_lease_lost_total.fetch_add(1, Ordering::Relaxed);
+                self.inner
+                    .jobs_lease_lost_total
+                    .fetch_add(1, Ordering::Relaxed);
             }
             JobOutcome::TransitionError => {
                 self.inner
@@ -189,11 +197,15 @@ impl Metrics {
     }
 
     pub fn redis_reconnect(&self) {
-        self.inner.redis_reconnects_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .redis_reconnects_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn relay_published(&self) {
-        self.inner.relay_published_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .relay_published_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn relay_publish_failed(&self) {
@@ -203,7 +215,9 @@ impl Metrics {
     }
 
     pub fn scheduler_enqueued(&self) {
-        self.inner.scheduler_enqueued_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .scheduler_enqueued_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn scheduler_enqueue_failed(&self) {
@@ -294,14 +308,22 @@ impl Metrics {
             ("5xx", self.inner.http_5xx_total.load(Ordering::Relaxed)),
             ("other", self.inner.http_other_total.load(Ordering::Relaxed)),
         ] {
-            metric_state(&mut output, "rust_api_http_responses_total", label, class, value);
+            metric_state(
+                &mut output,
+                "rust_api_http_responses_total",
+                label,
+                class,
+                value,
+            );
         }
         summary(
             &mut output,
             "rust_api_http_request_duration_seconds",
             "HTTP request duration",
             label,
-            self.inner.http_duration_micros_total.load(Ordering::Relaxed),
+            self.inner
+                .http_duration_micros_total
+                .load(Ordering::Relaxed),
             self.inner.http_duration_count.load(Ordering::Relaxed),
         );
 
@@ -340,7 +362,9 @@ impl Metrics {
                 "rust_api_worker_transition_errors_total",
                 "Job outcome transitions that could not be durably recorded",
                 "counter",
-                self.inner.jobs_transition_error_total.load(Ordering::Relaxed),
+                self.inner
+                    .jobs_transition_error_total
+                    .load(Ordering::Relaxed),
             ),
             (
                 "rust_api_queue_claim_errors_total",
@@ -364,7 +388,9 @@ impl Metrics {
                 "rust_api_relay_publish_failed_total",
                 "Outbox Redis publish failures",
                 "counter",
-                self.inner.relay_publish_failed_total.load(Ordering::Relaxed),
+                self.inner
+                    .relay_publish_failed_total
+                    .load(Ordering::Relaxed),
             ),
             (
                 "rust_api_scheduler_enqueued_total",
@@ -376,7 +402,9 @@ impl Metrics {
                 "rust_api_scheduler_enqueue_failed_total",
                 "Scheduled maintenance enqueue failures",
                 "counter",
-                self.inner.scheduler_enqueue_failed_total.load(Ordering::Relaxed),
+                self.inner
+                    .scheduler_enqueue_failed_total
+                    .load(Ordering::Relaxed),
             ),
         ] {
             metric_help_type(&mut output, name, help, kind);
@@ -387,7 +415,9 @@ impl Metrics {
             "rust_api_worker_job_duration_seconds",
             "Worker job execution and durable outcome duration",
             label,
-            self.inner.jobs_duration_micros_total.load(Ordering::Relaxed),
+            self.inner
+                .jobs_duration_micros_total
+                .load(Ordering::Relaxed),
             self.inner.jobs_duration_count.load(Ordering::Relaxed),
         );
         output
@@ -415,14 +445,7 @@ fn metric_state(output: &mut String, name: &str, process: &str, state: &str, val
     .expect("write to String");
 }
 
-fn summary(
-    output: &mut String,
-    name: &str,
-    help: &str,
-    process: &str,
-    micros: u64,
-    count: u64,
-) {
+fn summary(output: &mut String, name: &str, help: &str, process: &str, micros: u64, count: u64) {
     metric_help_type(output, name, help, "summary");
     writeln!(
         output,
@@ -430,8 +453,7 @@ fn summary(
         micros as f64 / 1_000_000.0
     )
     .expect("write to String");
-    writeln!(output, "{name}_count{{process=\"{process}\"}} {count}")
-        .expect("write to String");
+    writeln!(output, "{name}_count{{process=\"{process}\"}} {count}").expect("write to String");
 }
 
 #[derive(Clone)]
@@ -486,10 +508,11 @@ async fn ready(State(state): State<ServerState>) -> (StatusCode, Json<ReadyBody>
 }
 
 async fn metrics(State(state): State<ServerState>) -> Response {
-    let body = state
-        .probe
-        .metrics
-        .render(state.process, state.database.stats(), state.probe.is_ready());
+    let body = state.probe.metrics.render(
+        state.process,
+        state.database.stats(),
+        state.probe.is_ready(),
+    );
     (
         StatusCode::OK,
         [(
@@ -601,10 +624,11 @@ mod tests {
             true,
         );
         assert!(output.contains("rust_api_http_requests_total{process=\"api\"} 1"));
-        assert!(output.contains(
-            "rust_api_http_responses_total{process=\"api\",state=\"2xx\"} 1"
-        ));
-        assert!(output.contains("rust_api_database_pool_connections{process=\"api\",state=\"active\"} 1"));
+        assert!(output.contains("rust_api_http_responses_total{process=\"api\",state=\"2xx\"} 1"));
+        assert!(
+            output
+                .contains("rust_api_database_pool_connections{process=\"api\",state=\"active\"} 1")
+        );
         assert!(output.contains("rust_api_worker_jobs_completed_total{process=\"api\"} 1"));
         assert!(!output.contains("path="));
         assert!(!output.contains("user_id"));

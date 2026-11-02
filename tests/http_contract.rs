@@ -113,10 +113,12 @@ async fn swagger_ui_and_openapi_document_are_available_when_enabled() {
         .await
         .unwrap();
     assert_eq!(ui_response.status(), StatusCode::OK);
-    assert!(ui_response.headers()[header::CONTENT_TYPE]
-        .to_str()
-        .unwrap()
-        .starts_with("text/html"));
+    assert!(
+        ui_response.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/html")
+    );
     let ui = to_bytes(ui_response.into_body(), 100_000).await.unwrap();
     let ui = String::from_utf8(ui.to_vec()).unwrap();
     assert!(ui.contains("/api-docs/openapi.json"));

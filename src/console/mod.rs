@@ -57,7 +57,12 @@ enum Command {
         #[arg(long, env = "ARTISAN_SEED", value_parser = BoolishValueParser::new())]
         seed: bool,
         /// Run a registered seeder class after migrating; implies --seed.
-        #[arg(long, env = "ARTISAN_CLASS", hide_env_values = true, value_name = "CLASS")]
+        #[arg(
+            long,
+            env = "ARTISAN_CLASS",
+            hide_env_values = true,
+            value_name = "CLASS"
+        )]
         seeder: Option<String>,
         /// Allow destructive fresh migration in production.
         #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
@@ -66,7 +71,12 @@ enum Command {
     /// Run the default DatabaseSeeder or a registered --class.
     #[command(name = "db:seed")]
     DbSeed {
-        #[arg(long, env = "ARTISAN_CLASS", hide_env_values = true, value_name = "CLASS")]
+        #[arg(
+            long,
+            env = "ARTISAN_CLASS",
+            hide_env_values = true,
+            value_name = "CLASS"
+        )]
         class: Option<String>,
         /// Allow data seeding in production.
         #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
@@ -276,7 +286,9 @@ pub async fn run() -> anyhow::Result<()> {
                     "Complete forward AND rollback SQL for BOTH databases before running make migrate."
                 );
             } else if kind == generate::Kind::Seeder {
-                println!("Seeder scaffold registered. Implement idempotent/bounded seed data before use.");
+                println!(
+                    "Seeder scaffold registered. Implement idempotent/bounded seed data before use."
+                );
             } else {
                 println!(
                     "Rust modules registered. Implement the scaffold and wire routes, dependencies, or job dispatch explicitly."

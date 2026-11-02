@@ -1,9 +1,4 @@
-use axum::{
-    Json, Router,
-    extract::State,
-    response::Html,
-    routing::get,
-};
+use axum::{Json, Router, extract::State, response::Html, routing::get};
 use serde_json::{Value, json};
 
 use crate::{config::swagger::SwaggerConfig, state::AppState};

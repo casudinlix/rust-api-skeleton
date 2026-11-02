@@ -17,11 +17,7 @@ use validator::Validate;
 #[derive(Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct CreateCustomerRequest {
-    #[validate(length(
-        min = 1,
-        max = 100,
-        message = "must contain 1 to 100 characters"
-    ))]
+    #[validate(length(min = 1, max = 100, message = "must contain 1 to 100 characters"))]
     pub name: String,
     #[validate(email(message = "must be a valid email address"))]
     #[validate(length(max = 254, message = "must contain at most 254 characters"))]
@@ -82,11 +78,7 @@ pub async fn show() -> AppResult<ApiJson<CustomerResponse>> {
 
 pub async fn index() -> AppResult<ApiCursorJson<CustomerResponse>> {
     let (items, next_cursor) = CustomerService::new().list().await?;
-    Ok(response::cursor(
-        "Customers retrieved",
-        items,
-        next_cursor,
-    ))
+    Ok(response::cursor("Customers retrieved", items, next_cursor))
 }
 
 fn sample_customer() -> CustomerResponse {

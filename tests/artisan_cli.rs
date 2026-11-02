@@ -172,7 +172,12 @@ fn storage_link_creates_public_symlink_and_refuses_regular_file_overwrite() {
     let fixture = Fixture::new();
     success(&fixture.command().arg("storage:link").output().unwrap());
     let link = fixture.root().join("public/storage");
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert!(fixture.root().join("storage/app/public").is_dir());
 
     success(&fixture.command().arg("storage:link").output().unwrap());

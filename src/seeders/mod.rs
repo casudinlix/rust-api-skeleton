@@ -10,8 +10,6 @@ pub async fn run(database: &DatabasePool, class: &str) -> anyhow::Result<()> {
     match class {
         "DatabaseSeeder" => database_seeder::run(database).await,
         // ARTISAN_SEEDER_REGISTRY
-        _ => bail!(
-            "unknown seeder class {class}; generate/register it in src/seeders/mod.rs"
-        ),
+        _ => bail!("unknown seeder class {class}; generate/register it in src/seeders/mod.rs"),
     }
 }

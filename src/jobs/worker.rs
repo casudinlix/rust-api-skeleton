@@ -128,14 +128,7 @@ pub async fn run_worker(
     mail: MailConfig,
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
-    run_worker_with_probe(
-        database,
-        config,
-        mail,
-        cancellation,
-        ProcessProbe::new(),
-    )
-    .await
+    run_worker_with_probe(database, config, mail, cancellation, ProcessProbe::new()).await
 }
 
 pub async fn run_worker_with_probe(

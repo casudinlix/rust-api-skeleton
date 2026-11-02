@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::Path,
-};
+use std::{fs, path::Path};
 
 use anyhow::{Context, ensure};
 use sqlx::migrate::Migrator;
@@ -15,7 +12,10 @@ use rust_api_skeleton::{
 use super::project;
 
 pub async fn rollback(root: &Path, step: usize, force: bool) -> anyhow::Result<()> {
-    ensure!((1..=100).contains(&step), "--step must be between 1 and 100");
+    ensure!(
+        (1..=100).contains(&step),
+        "--step must be between 1 and 100"
+    );
     let settings = Settings::load()?;
     destructive_guard(&settings, force, "migrate:rollback")?;
     let database = DatabasePool::connect(&settings.database).await?;
@@ -105,9 +105,7 @@ fn destructive_guard(settings: &Settings, force: bool, command: &str) -> anyhow:
 
 fn write_guard(settings: &Settings, force: bool, command: &str) -> anyhow::Result<()> {
     if settings.app.environment == "production" && !force {
-        anyhow::bail!(
-            "{command} writes data and is disabled in production without --force"
-        );
+        anyhow::bail!("{command} writes data and is disabled in production without --force");
     }
     Ok(())
 }
@@ -117,7 +115,9 @@ fn validate_class(class: &str) -> anyhow::Result<()> {
         !class.is_empty()
             && class.len() <= 100
             && class.as_bytes()[0].is_ascii_alphabetic()
-            && class.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            && class
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
         "seeder class must be an ASCII Rust-style name up to 100 characters"
     );
     Ok(())
@@ -131,11 +131,7 @@ fn rollback_target(versions: &[i64], step: usize) -> i64 {
     }
 }
 
-async fn undo(
-    database: &DatabasePool,
-    migrator: &Migrator,
-    target: i64,
-) -> anyhow::Result<()> {
+async fn undo(database: &DatabasePool, migrator: &Migrator, target: i64) -> anyhow::Result<()> {
     match database {
         #[cfg(feature = "postgres")]
         DatabasePool::Postgres(pool) => migrator
@@ -162,21 +158,19 @@ impl RollbackBundle {
         let migration_dir = Path::new("migrations").join(&driver);
         let rollback_dir = Path::new("rollbacks").join(&driver);
         let migrations = collect_migrations(root, &migration_dir)?;
-        ensure!(
-            !migrations.is_empty(),
-            "no migrations found for {driver}"
-        );
+        ensure!(!migrations.is_empty(), "no migrations found for {driver}");
 
         let directory = tempfile::tempdir().context("could not prepare rollback bundle")?;
         let mut versions = Vec::with_capacity(migrations.len());
         for migration in migrations {
             let rollback_relative = rollback_dir.join(&migration.file_name);
-            let rollback = project::read_optional(root, &rollback_relative)?.with_context(|| {
-                format!(
-                    "missing rollback companion {}; every migration must have one",
-                    rollback_relative.display()
-                )
-            })?;
+            let rollback =
+                project::read_optional(root, &rollback_relative)?.with_context(|| {
+                    format!(
+                        "missing rollback companion {}; every migration must have one",
+                        rollback_relative.display()
+                    )
+                })?;
             ensure!(
                 !rollback.trim().is_empty() && !rollback.contains("SCAFFOLD ONLY"),
                 "{} is empty or still a scaffold; write explicit rollback SQL before rollback/fresh",
@@ -234,7 +228,10 @@ fn collect_migrations(root: &Path, directory: &Path) -> anyhow::Result<Vec<Migra
             .file_name()
             .into_string()
             .map_err(|_| anyhow::anyhow!("migration filename must be UTF-8"))?;
-        if !file_name.ends_with(".sql") || file_name.ends_with(".up.sql") || file_name.ends_with(".down.sql") {
+        if !file_name.ends_with(".sql")
+            || file_name.ends_with(".up.sql")
+            || file_name.ends_with(".down.sql")
+        {
             continue;
         }
         let (version, _) = file_name

@@ -14,8 +14,8 @@ use database::DatabaseConfig;
 use filesystem::FilesystemConfig;
 use logging::LoggingConfig;
 use observability::ObservabilityConfig;
-use swagger::SwaggerConfig;
 use serde::Deserialize;
+use swagger::SwaggerConfig;
 
 #[derive(Clone)]
 pub struct Settings {
@@ -171,8 +171,7 @@ impl Default for RawSettings {
             swagger_enabled: false,
             swagger_ui_path: "/docs".into(),
             swagger_openapi_path: "/api-docs/openapi.json".into(),
-            swagger_asset_base_url:
-                "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6".into(),
+            swagger_asset_base_url: "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6".into(),
             db_driver: "postgres".into(),
             database_url: String::new(),
             db_max_connections: 10,
@@ -537,8 +536,7 @@ mod tests {
         assert!(s.validate().is_err());
         s.swagger.ui_path = "/docs".into();
         s.swagger.openapi_path = "/api-docs/openapi.json".into();
-        s.swagger.asset_base_url =
-            "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6".into();
+        s.swagger.asset_base_url = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6".into();
         s.validate().unwrap();
     }
 

@@ -1,11 +1,3 @@
-use anyhow::Context;
-use std::{
-    future::{Future, IntoFuture},
-    net::SocketAddr,
-    time::Duration,
-};
-use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
 use crate::{
     config::{QueueDriver, Settings},
     database::DatabasePool,
@@ -15,8 +7,18 @@ use crate::{
     state::AppState,
     utils::shutdown::shutdown_signal,
 };
+use anyhow::Context;
+use std::{
+    future::{Future, IntoFuture},
+    net::SocketAddr,
+    time::Duration,
+};
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
-async fn initialize(process: &'static str) -> anyhow::Result<(Settings, DatabasePool, logging::LogGuard)> {
+async fn initialize(
+    process: &'static str,
+) -> anyhow::Result<(Settings, DatabasePool, logging::LogGuard)> {
     initialize_with_queue_driver(process, None).await
 }
 
@@ -143,8 +145,7 @@ pub async fn run_worker() -> anyhow::Result<()> {
 }
 
 pub async fn run_worker_with_driver(driver: Option<QueueDriver>) -> anyhow::Result<()> {
-    let (settings, database, _log_guard) =
-        initialize_with_queue_driver("worker", driver).await?;
+    let (settings, database, _log_guard) = initialize_with_queue_driver("worker", driver).await?;
     let cancellation = CancellationToken::new();
     let probe = ProcessProbe::new();
     let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);

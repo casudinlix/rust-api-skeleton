@@ -23,8 +23,8 @@ pub fn link(
             .join("public"),
     };
     fs::create_dir_all(&storage_root).context("could not create public storage directory")?;
-    let target_meta =
-        fs::symlink_metadata(&storage_root).context("could not inspect public storage directory")?;
+    let target_meta = fs::symlink_metadata(&storage_root)
+        .context("could not inspect public storage directory")?;
     ensure!(
         target_meta.is_dir() && !target_meta.file_type().is_symlink(),
         "storage:link target must be a real directory"
@@ -49,7 +49,8 @@ pub fn link(
 
     match fs::symlink_metadata(&link) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            let existing = fs::read_link(&link).context("could not inspect existing storage link")?;
+            let existing =
+                fs::read_link(&link).context("could not inspect existing storage link")?;
             let existing = if existing.is_absolute() {
                 existing
             } else {
@@ -101,7 +102,10 @@ fn configured_filesystem_root(project_root: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn normalize_target(project_root: &Path, target: &Path) -> anyhow::Result<PathBuf> {
-    ensure!(!target.as_os_str().is_empty(), "storage target must not be empty");
+    ensure!(
+        !target.as_os_str().is_empty(),
+        "storage target must not be empty"
+    );
     if target.is_absolute() {
         return Ok(target.to_path_buf());
     }
@@ -150,7 +154,12 @@ mod tests {
         let root = project();
         link(root.path(), None, None, false).unwrap();
         let linked = root.path().join("public/storage");
-        assert!(fs::symlink_metadata(&linked).unwrap().file_type().is_symlink());
+        assert!(
+            fs::symlink_metadata(&linked)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         link(root.path(), None, None, false).unwrap();
         assert!(root.path().join("storage/app/public").is_dir());
     }
