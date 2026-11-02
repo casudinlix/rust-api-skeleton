@@ -8,20 +8,30 @@ x-app: &app
     args:
       DB_FEATURES: ${DB_FEATURES:-postgres,mysql}
   env_file: .env
+  init: true
+  pids_limit: 256
   environment:
     DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
     REDIS_URL: ${DOCKER_REDIS_URL:-}
     QUEUE_REDIS_URL: ${DOCKER_QUEUE_REDIS_URL:-}
+    APP_ENV: local
     APP_HOST: 0.0.0.0
+    APP_PORT: 3000
     OBSERVABILITY_HOST: 0.0.0.0
   restart: unless-stopped
   read_only: true
-  tmpfs: [/tmp]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   volumes:
     - app_storage:/app/storage
   stop_grace_period: 60s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
   postgres:
@@ -111,7 +121,7 @@ services:
   api:
     <<: *app
     command: [api]
-    ports: ["127.0.0.1:${APP_PORT:-3000}:${APP_PORT:-3000}"]
+    ports: ["127.0.0.1:${APP_PORT:-3000}:3000"]
     expose: ["9100"]
     healthcheck:
       test: [CMD-SHELL, "curl --fail --silent --max-time 2 http://127.0.0.1:9100/ready > /dev/null || exit 1"]
