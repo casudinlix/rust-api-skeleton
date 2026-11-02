@@ -4,6 +4,7 @@ use crate::{
     cache::Cache,
     config::Settings,
     database::DatabasePool,
+    filesystem::LocalStorage,
     jobs::{JobQueue, queue_backend},
     middleware::rate_limit::AuthRateLimiter,
     observability::Metrics,
@@ -16,6 +17,7 @@ pub struct AppState {
     pub settings: Arc<Settings>,
     pub database: DatabasePool,
     pub cache: Arc<Cache>,
+    pub storage: Arc<LocalStorage>,
     pub auth_service: Arc<AuthService>,
     pub user_service: Arc<UserService>,
     pub queue: Arc<dyn JobQueue>,
@@ -35,6 +37,7 @@ impl AppState {
     ) -> anyhow::Result<Self> {
         settings.queue.validate()?;
         let cache = Arc::new(Cache::from_config(&settings.cache)?);
+        let storage = Arc::new(LocalStorage::new(&settings.filesystem)?);
         let users = repositories::user_repository_with_queue(&database, settings.queue.driver);
         let auth_service = Arc::new(AuthService::new(
             users.clone(),
@@ -49,6 +52,7 @@ impl AppState {
             settings: Arc::new(settings),
             database,
             cache,
+            storage,
             auth_service,
             user_service,
             queue,

@@ -5,7 +5,7 @@ use axum::{
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::response;
+use crate::{filesystem::StorageError, response};
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -37,6 +37,17 @@ pub enum AppError {
     Database(#[from] sqlx::Error),
     #[error("Internal server error")]
     Internal(#[from] anyhow::Error),
+}
+
+impl From<StorageError> for AppError {
+    fn from(error: StorageError) -> Self {
+        match error {
+            StorageError::InvalidPath => Self::BadRequest("Invalid storage path".into()),
+            StorageError::TooLarge => Self::PayloadTooLarge,
+            StorageError::NotFound => Self::NotFound("Stored file not found".into()),
+            StorageError::Io => Self::Internal(anyhow::anyhow!("storage_io_failed")),
+        }
+    }
 }
 
 impl IntoResponse for AppError {

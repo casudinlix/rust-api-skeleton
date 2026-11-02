@@ -6,3 +6,11 @@
 *.log
 .DS_Store
 /coverage/
+
+/storage/app/private/*
+!/storage/app/private/.gitkeep
+/storage/app/public/*
+!/storage/app/public/.gitkeep
+/storage/logs/*
+!/storage/logs/.gitkeep
+/public/storage

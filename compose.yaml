@@ -19,6 +19,8 @@ x-app: &app
   tmpfs: [/tmp]
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
+  volumes:
+    - app_storage:/app/storage
   stop_grace_period: 60s
 
 services:
@@ -158,3 +160,4 @@ volumes:
   postgres_data:
   mysql_data:
   redis_queue_data:
+  app_storage:

@@ -469,3 +469,30 @@ executed for this revision. Source/config/documentation consistency was reviewed
 against the current Axum/SQLx APIs and existing project contracts. This section
 must not be read as a passing runtime verification record; rerun the standard
 local verification matrix on a Rust 1.99.1 environment before tagging a release.
+
+
+## Filesystem, storage link, and rotating logs — 2026-11-02
+
+Added generic local filesystem and logging foundations:
+
+- `LocalStorage` with private/public disks, size limit, relative-path validation,
+  symlink-component rejection, atomic temporary-file rename, read/exists/delete;
+- `AppState.storage` as the reusable module entrypoint;
+- `storage/app/{private,public}`, `storage/logs`, and `public/assets` layout;
+- `artisan storage:link` / `make storage-link`, idempotent and refusing to
+  overwrite regular files/directories even with force;
+- stdout/file/both logging with bounded asynchronous file writer, per-process
+  filenames, never/hourly/daily rotation and bounded retained file count;
+- structured custom logs through normal tracing targets and RUST_LOG filtering;
+- Docker public/storage symlink plus writable `app_storage` Compose volume;
+- unit/CLI/Make contracts for path validation, local storage, retention, and
+  storage-link behavior.
+
+No database schema, queue payload, authentication, cache semantics, or HTTP
+business contract was changed.
+
+The current execution environment still does not provide Rust/Cargo, so
+`cargo fmt`, Clippy, compilation, `make check`, CLI tests, Docker build/run,
+and Compose validation were not executed here. The source and configuration were
+reviewed statically; this is not runtime evidence. Run the normal verification
+matrix on Rust 1.99.1 before tagging.

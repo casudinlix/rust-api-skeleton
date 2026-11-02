@@ -24,6 +24,25 @@ Untuk produksi, buat database lebih dahulu, gunakan user migration terpisah
 dengan hak DDL, dan user aplikasi dengan hak minimum CRUD pada schema. SQLite dan
 MariaDB bukan target kompatibilitas yang diuji.
 
+## Filesystem dan log persistence
+
+Compose development memasang `app_storage:/app/storage` karena root filesystem
+container read-only. Public runtime files berada di `storage/app/public`, private
+files di `storage/app/private`, dan optional file logs di `storage/logs`.
+`public/storage` adalah symlink, bukan salinan data.
+
+Default `LOG_OUTPUT=stdout`. Bila memakai `file` atau `both`, log dipisahkan per
+process, dirotasi `hourly|daily|never`, dan retention dibatasi `LOG_MAX_FILES`.
+Untuk production container yang sudah memiliki stdout collector, tetap gunakan
+stdout kecuali ada alasan operasional untuk menyimpan file log lokal.
+
+Local filesystem hanya cocok untuk single-host atau storage volume yang memang
+dishare. Replica di host berbeda tidak otomatis berbagi upload. Untuk kebutuhan
+tersebut gunakan shared filesystem atau object storage pada project turunan.
+
+Lihat [panduan filesystem/logging](filesystem.md) untuk `storage:link`, path
+safety, static asset serving, konfigurasi log, dan custom structured target.
+
 ## TLS, secret, dan reverse proxy
 
 Termination HTTPS dilakukan oleh reverse proxy/load balancer. API listen pada

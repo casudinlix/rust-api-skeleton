@@ -1,13 +1,17 @@
 pub mod cache;
 pub mod database;
-pub mod queue;
+pub mod filesystem;
+pub mod logging;
 pub mod observability;
+pub mod queue;
 
 pub use queue::{QueueConfig, QueueDriver, RedisQueueConfig};
 
 use anyhow::{Context, ensure};
 use cache::CacheConfig;
 use database::DatabaseConfig;
+use filesystem::FilesystemConfig;
+use logging::LoggingConfig;
 use observability::ObservabilityConfig;
 use serde::Deserialize;
 
@@ -16,6 +20,8 @@ pub struct Settings {
     pub app: AppConfig,
     pub database: DatabaseConfig,
     pub cache: CacheConfig,
+    pub filesystem: FilesystemConfig,
+    pub logging: LoggingConfig,
     pub jwt: JwtConfig,
     pub cors: CorsConfig,
     pub queue: QueueConfig,
@@ -74,6 +80,14 @@ struct RawSettings {
     app_host: String,
     app_port: u16,
     log_format: String,
+    log_output: String,
+    log_file_dir: String,
+    log_file_prefix: String,
+    log_rotation: String,
+    log_max_files: usize,
+    log_channel_capacity: usize,
+    filesystem_root: String,
+    filesystem_max_file_bytes: usize,
     request_timeout_secs: u64,
     shutdown_timeout_secs: u64,
     body_limit_bytes: usize,
@@ -129,6 +143,14 @@ impl Default for RawSettings {
             app_host: "0.0.0.0".into(),
             app_port: 3000,
             log_format: "json".into(),
+            log_output: "stdout".into(),
+            log_file_dir: "storage/logs".into(),
+            log_file_prefix: "app".into(),
+            log_rotation: "daily".into(),
+            log_max_files: 14,
+            log_channel_capacity: 8_192,
+            filesystem_root: "storage/app".into(),
+            filesystem_max_file_bytes: 104_857_600,
             request_timeout_secs: 30,
             shutdown_timeout_secs: 45,
             body_limit_bytes: 65_536,
@@ -233,6 +255,18 @@ impl Settings {
                 scheduler_port: raw.observability_scheduler_port,
                 relay_port: raw.observability_relay_port,
             },
+            filesystem: FilesystemConfig {
+                root: raw.filesystem_root.into(),
+                max_file_bytes: raw.filesystem_max_file_bytes,
+            },
+            logging: LoggingConfig {
+                output: raw.log_output.parse().context("invalid LOG_OUTPUT")?,
+                directory: raw.log_file_dir.into(),
+                file_prefix: raw.log_file_prefix,
+                rotation: raw.log_rotation.parse().context("invalid LOG_ROTATION")?,
+                max_files: raw.log_max_files,
+                channel_capacity: raw.log_channel_capacity,
+            },
             database: DatabaseConfig {
                 driver: raw.db_driver.parse().context("invalid DB_DRIVER")?,
                 url: raw.database_url,
@@ -299,6 +333,8 @@ impl Settings {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.database.validate()?;
         self.cache.validate()?;
+        self.filesystem.validate()?;
+        self.logging.validate()?;
         self.observability.validate()?;
         ensure!(
             [
@@ -452,6 +488,21 @@ mod tests {
             .build()
             .unwrap();
         Settings::from_config(source).unwrap()
+    }
+
+    #[test]
+    fn filesystem_and_logging_configuration_are_validated() {
+        let mut s = settings();
+        s.filesystem.root = "../outside".into();
+        assert!(s.validate().is_err());
+
+        s.filesystem.root = "storage/app".into();
+        s.logging.file_prefix = "bad prefix".into();
+        assert!(s.validate().is_err());
+
+        s.logging.file_prefix = "app".into();
+        s.logging.max_files = 14;
+        s.validate().unwrap();
     }
 
     #[test]

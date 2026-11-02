@@ -6,3 +6,8 @@ tests
 docs
 *.log
 .github
+
+public/storage
+storage/app/private/*
+storage/app/public/*
+storage/logs/*

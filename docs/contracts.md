@@ -45,9 +45,16 @@ behavior is documented in README; update this file when an interface changes.
   `normalize_and_validate` so non-HTTP callers cannot bypass the boundary.
 - `utils::shutdown::shutdown_signal() -> impl Future<Output = ()>`.
 - `state::AppState`: `settings: Arc<Settings>`, `database: DatabasePool`,
-  `cache: Arc<Cache>`, `auth_service: Arc<AuthService>`, `user_service: Arc<UserService>`,
+  `cache: Arc<Cache>`, `storage: Arc<LocalStorage>`, `auth_service: Arc<AuthService>`, `user_service: Arc<UserService>`,
   `queue: Arc<dyn JobQueue>`, bounded `observability::Metrics`, plus HTTP
   auth-rate limiter as needed.
+- `filesystem::LocalStorage` exposes bounded local `private`/`public` disks. Paths
+  must be relative normal components; writes reject symlink traversal and use a
+  same-directory temporary file followed by rename. `storage:link` is a developer/
+  deploy command, not an HTTP endpoint.
+- `logging` owns stdout/file/both tracing setup. File names are process-specific,
+  rotation is never/hourly/daily, retention is bounded, and the bootstrap-held
+  `LogGuard` flushes the bounded writer during normal shutdown.
 - `observability::ProcessProbe` owns process readiness plus the shared metrics
   registry. Bootstrap runs a separate observability listener for API/worker/
   scheduler/relay. `/ready` requires exact DB migration readiness plus process

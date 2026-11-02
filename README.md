@@ -22,6 +22,8 @@ untuk perubahan skema, kontrak API/cursor, bukti indeks, dan upgrade data lama.
 - Axum 0.8, Tokio, SQLx 0.8.6, Rust 2024 edition.
 - PostgreSQL dan MySQL: default build memuat kedua driver; bisa build satu driver.
 - Cache Redis opsional: JSON, TTL, namespace, timeout, dan helper `remember`.
+- Local filesystem `private/public`, atomic writes, size/path guards, `storage:link`,
+  source-controlled `public/assets`, serta writable storage volume di Compose.
 - Queue database/Redis yang dapat dipilih secara independen dari cache; Apalis
   Redis, outbox SQL, relay terkelola/terpisah, dan concurrency worker terbatas.
 - Command bergaya Laravel melalui `make` dan binary Rust `artisan`: install,
@@ -31,6 +33,8 @@ untuk perubahan skema, kontrak API/cursor, bukti indeks, dan upgrade data lama.
 - Normalisasi sebelum validasi, JSON envelope, error terpusat, CORS allowlist.
 - Request ID, structured tracing, JSON/pretty logs, timeout, body limit,
   per-peer auth rate limit, dan graceful SIGINT/SIGTERM shutdown.
+- Logging `stdout|file|both`, hourly/daily rotation, bounded retention, file terpisah
+  per process, dan custom structured target melalui `tracing`.
 - Listener observability terpisah per process dengan liveness, readiness,
   Prometheus text metrics, DB-pool gauges, serta worker/relay/scheduler counters.
 - Transaksi atomik user + welcome job, leased queue claims, retry/backoff,
@@ -61,6 +65,8 @@ make install
 `make install` menyiapkan `.env` dari contoh bila belum ada, menghasilkan
 `JWT_SECRET` acak bila masih kosong/placeholder, lalu mengambil dan membangun
 dependency sesuai `Cargo.lock`. Konfigurasi dan key yang sudah valid dipertahankan.
+Untuk public runtime files, jalankan `make storage-link` setelah init bila bekerja
+langsung dari source tree.
 Secret tidak dicetak ke terminal. Isi `DATABASE_URL` untuk database yang sudah
 dibuat; command ini tidak membuat database atau menjalankan migration.
 
@@ -118,7 +124,9 @@ Binary `migrate` hanya menerapkan migration maju; tidak menyediakan reset databa
 atau rollback destruktif otomatis.
 
 Lihat [panduan command development](docs/development.md) untuk generator,
-penambahan package, rotasi key, dan contoh alur membuat fitur. Untuk module
+penambahan package, rotasi key, dan contoh alur membuat fitur. Filesystem,
+`storage:link`, static assets, file logging, rotation, dan custom log dijelaskan di
+[panduan filesystem/logging](docs/filesystem.md). Untuk module
 pertama, gunakan [starter pattern](docs/module-init.md) dan source yang dapat
 dikompilasi di [examples/module_init.rs](examples/module_init.rs).
 
@@ -420,6 +428,8 @@ untuk peralihan driver, konfigurasi, outbox, recovery, dan pengujian.
 | Configuration | `src/config/` | Env, driver, validasi setting |
 | Database | `src/database/` | Pool, UTC session, ping, migration |
 | Cache | `src/cache/` | Facade JSON, backend Redis/none, TTL, fallback |
+| Filesystem | `src/filesystem/`, `storage/`, `public/` | Local private/public storage dan static/public layout |
+| Logging | `src/logging/` | Stdout/file writer, rotation, retention, structured targets |
 | Domain | `src/domain/models/`, `src/domain/dtos/` | Model internal dan payload API |
 | Repository | `src/repositories/` | Trait + adapter PostgreSQL/MySQL |
 | Service | `src/services/` | Business logic, auth, pagination |

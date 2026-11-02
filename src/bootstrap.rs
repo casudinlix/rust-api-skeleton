@@ -6,58 +6,28 @@ use std::{
 };
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
-use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
-
 use crate::{
     config::{QueueDriver, Settings},
     database::DatabasePool,
-    jobs,
+    jobs, logging,
     observability::{self, ProcessKind, ProcessProbe},
     routes, schedulers,
     state::AppState,
     utils::shutdown::shutdown_signal,
 };
 
-fn init_tracing(settings: &Settings) -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn,tower_http=info"));
-    // Third-party persistence diagnostics can include raw serialized jobs or
-    // server text. Our queue adapter emits safe categories and application IDs.
-    let safe_targets = tracing_subscriber::filter::filter_fn(|metadata| {
-        !metadata.target().starts_with("apalis_core")
-            && !metadata.target().starts_with("apalis_redis")
-    });
-    if settings.app.log_format == "json" {
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .json()
-                    .with_filter(safe_targets),
-            )
-            .try_init()
-            .map_err(|_| anyhow::anyhow!("could not initialize JSON tracing"))?;
-    } else {
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(tracing_subscriber::fmt::layer().with_filter(safe_targets))
-            .try_init()
-            .map_err(|_| anyhow::anyhow!("could not initialize tracing"))?;
-    }
-    Ok(())
-}
-
-async fn initialize() -> anyhow::Result<(Settings, DatabasePool)> {
-    initialize_with_queue_driver(None).await
+async fn initialize(process: &'static str) -> anyhow::Result<(Settings, DatabasePool, logging::LogGuard)> {
+    initialize_with_queue_driver(process, None).await
 }
 
 async fn initialize_with_queue_driver(
+    process: &'static str,
     driver: Option<QueueDriver>,
-) -> anyhow::Result<(Settings, DatabasePool)> {
+) -> anyhow::Result<(Settings, DatabasePool, logging::LogGuard)> {
     let settings = Settings::load_with_queue_driver(driver)?;
-    init_tracing(&settings)?;
+    let log_guard = logging::init(&settings, process)?;
     let database = DatabasePool::connect(&settings.database).await?;
-    Ok((settings, database))
+    Ok((settings, database, log_guard))
 }
 
 struct DrainOutcome {
@@ -127,7 +97,7 @@ where
 }
 
 pub async fn run_api() -> anyhow::Result<()> {
-    let (settings, database) = initialize().await?;
+    let (settings, database, _log_guard) = initialize("api").await?;
     let grace = settings.app.shutdown_timeout_secs;
     let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
     let observability_config = settings.observability.clone();
@@ -173,7 +143,8 @@ pub async fn run_worker() -> anyhow::Result<()> {
 }
 
 pub async fn run_worker_with_driver(driver: Option<QueueDriver>) -> anyhow::Result<()> {
-    let (settings, database) = initialize_with_queue_driver(driver).await?;
+    let (settings, database, _log_guard) =
+        initialize_with_queue_driver("worker", driver).await?;
     let cancellation = CancellationToken::new();
     let probe = ProcessProbe::new();
     let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
@@ -199,7 +170,8 @@ pub async fn run_worker_with_driver(driver: Option<QueueDriver>) -> anyhow::Resu
 }
 
 pub async fn run_relay() -> anyhow::Result<()> {
-    let (settings, database) = initialize_with_queue_driver(Some(QueueDriver::Redis)).await?;
+    let (settings, database, _log_guard) =
+        initialize_with_queue_driver("relay", Some(QueueDriver::Redis)).await?;
     let cancellation = CancellationToken::new();
     let probe = ProcessProbe::new();
     let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
@@ -224,7 +196,7 @@ pub async fn run_relay() -> anyhow::Result<()> {
 }
 
 pub async fn run_scheduler() -> anyhow::Result<()> {
-    let (settings, database) = initialize().await?;
+    let (settings, database, _log_guard) = initialize("scheduler").await?;
     let cancellation = CancellationToken::new();
     let probe = ProcessProbe::new();
     let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
@@ -250,7 +222,7 @@ pub async fn run_scheduler() -> anyhow::Result<()> {
 }
 
 pub async fn run_migrations() -> anyhow::Result<()> {
-    let (settings, database) = initialize().await?;
+    let (settings, database, _log_guard) = initialize("migrate").await?;
     tracing::info!(driver = %settings.database.driver, "applying embedded migrations");
     run_service(
         database.migrate(),

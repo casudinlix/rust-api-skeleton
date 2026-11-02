@@ -169,9 +169,15 @@ generator tidak mengalahkan aturan ini.
 - Normalize DTO text before validation. Do not normalize passwords. Reject
   privileged/unknown fields instead of mass assignment.
 - Do not serialize/debug/log passwords, password hashes, JWTs, DSNs, SMTP
-  credentials, or raw request payloads. Validation errors must omit rejected values.
+  credentials, private keys, provider secrets, or raw request payloads. Validation
+  errors must omit rejected values. Custom logs use structured `tracing` targets;
+  modules must not open arbitrary log files directly.
 - New users are role `user`. Authorization reads the current database record.
   Add explicit policy checks for new endpoints; authentication alone is not authorization.
+- Filesystem writes use `LocalStorage` and a declared `StorageDisk`; never join
+  untrusted paths manually, traverse outside the configured root, follow symlink
+  components, or expose the private disk through the web server. Public runtime
+  files belong in the public disk; source/static assets belong in `public/assets`.
 - Cache only reproducible data through the cache facade. Include environment and
   tenant scope in namespaces/keys, use bounded TTLs, and define invalidation behavior.
   Optional cache failure must not change authorization or transactional queue semantics.
@@ -188,6 +194,11 @@ generator tidak mengalahkan aturan ini.
 - Keep the skeleton domain-neutral. Do not add project-specific RBAC, tenancy,
   audit-domain tables, or business permissions to the generic skeleton unless a
   concrete downstream project requires them.
+- Preserve stdout/file logging semantics, per-process filenames, bounded channel,
+  configured rotation/retention, and bootstrap-held log guard. Container default
+  remains stdout; file logging requires writable persistent storage. Multiple
+  replicas of the same process role must not share one file-log target; use stdout
+  plus a centralized collector unless a single-writer filesystem policy is proven.
 - Preserve process observability for API/worker/scheduler/relay. Metrics labels
   must remain bounded; never label metrics with user/resource/job IDs, raw paths,
   tenant IDs, emails, tokens, or unbounded input. Readiness must represent the

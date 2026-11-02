@@ -118,6 +118,39 @@ items + next_cursor
 Handler yang mengubahnya menjadi `response::cursor`. Dengan begitu semua domain
 mendapat bentuk API yang identik tanpa membuat pagination envelope sendiri.
 
+## Bila module menyimpan file
+
+Gunakan storage global dari `AppState`:
+
+```rust
+use crate::filesystem::StorageDisk;
+
+state
+    .storage
+    .put(
+        StorageDisk::Private,
+        "imports/customer.csv",
+        &bytes,
+    )
+    .await?;
+```
+
+File public menggunakan `StorageDisk::Public`; jangan menulis langsung ke
+`public/storage`. Untuk log domain gunakan structured target:
+
+```rust
+tracing::info!(
+    target: "app::customer",
+    event = "customer_imported",
+    customer_id = %customer_id,
+    "customer imported"
+);
+```
+
+Jangan log raw upload, password, token, atau payload request. Detail filesystem,
+`storage:link`, static assets, rotation, dan retention ada di
+[filesystem.md](filesystem.md).
+
 ## Persistence rules tetap berlaku
 
 Starter sample bukan izin untuk melewati aturan data. Sebelum repository real

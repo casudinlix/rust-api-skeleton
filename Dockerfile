@@ -18,7 +18,12 @@ RUN apt-get update \
     && groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 WORKDIR /app
+COPY public ./public
 COPY --from=builder /build/target/release/api /build/target/release/worker /build/target/release/scheduler /build/target/release/migrate /build/target/release/relay /usr/local/bin/
+RUN mkdir -p /app/storage/app/public /app/storage/app/private /app/storage/logs \
+    && rm -f /app/public/storage \
+    && ln -s ../storage/app/public /app/public/storage \
+    && chown -R app:app /app/public /app/storage
 USER 10001:10001
 ENV APP_HOST=0.0.0.0 APP_PORT=3000 OBSERVABILITY_HOST=0.0.0.0
 EXPOSE 3000 9100 9101 9102 9103

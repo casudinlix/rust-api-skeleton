@@ -77,6 +77,19 @@ di DTO data. Service/domain tidak boleh mengembalikan Axum `Json` atau
 adalah jalur tunggal untuk failure API sehingga status, header keamanan, sanitasi
 pesan, dan bentuk JSON tetap seragam.
 
+### Filesystem dan logging
+
+File runtime memakai `LocalStorage`, bukan `std::fs` langsung dari handler/service.
+Pilih disk `Private` atau `Public`, bentuk object path dari identifier tepercaya,
+dan jangan meneruskan path/nama file mentah dari client. Public disk dapat
+dihubungkan melalui `storage:link`; private disk tidak pernah dipetakan ke web
+server. Source-controlled asset berada di `public/assets`, bukan storage runtime.
+
+Log aplikasi memakai `tracing`. Module boleh membuat target stabil seperti
+`app::billing`, tetapi tidak membuka file log sendiri. Output/rotation/retention
+dikelola bootstrap agar API, worker, scheduler, relay, dan migration memakai
+policy yang sama. Log tidak boleh membawa secret atau payload mentah.
+
 ## 3. Konvensi PK, UUIDv7, dan relasi
 
 ### Nama kolom

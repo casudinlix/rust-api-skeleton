@@ -46,7 +46,9 @@ make serve
 Untuk MySQL, ubah `DB_DRIVER=mysql`, `DATABASE_URL`, dan `DOCKER_DATABASE_URL`
 terlebih dahulu, lalu jalankan `make docker-db DB_DRIVER=mysql`. Parameter
 `DB_DRIVER` pada `docker-db` memilih service Compose; konfigurasi aplikasi tetap
-harus sesuai. `make install` tidak membuat database dan tidak menerapkan migration.
+harus sesuai. `make install` tidak membuat database dan tidak menerapkan migration. Untuk
+public local storage jalankan `make storage-link`; command ini idempotent dan
+tidak menimpa file/directory biasa.
 
 ## Daftar command
 
@@ -63,6 +65,7 @@ Jalankan `make help` untuk daftar singkat.
 | `make relay` | Jalankan relay outbox terpisah untuk driver Redis |
 | `make scheduler` | Jalankan scheduler saja |
 | `make migrate` | Terapkan migration untuk driver yang dipilih |
+| `make storage-link` | Buat `public/storage` ke `FILESYSTEM_ROOT/public` |
 | `make controller NAME=CustomerController` | Buat controller/handler JSON |
 | `make model NAME=Customer` | Buat model domain |
 | `make request NAME=CreateCustomerRequest` | Buat DTO request dengan normalisasi/validasi |

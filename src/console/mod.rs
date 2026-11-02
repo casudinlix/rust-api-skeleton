@@ -3,6 +3,7 @@ mod install;
 mod packages;
 mod project;
 mod serve;
+mod storage;
 mod templates;
 
 use std::{path::PathBuf, time::Duration};
@@ -35,6 +36,19 @@ enum Command {
         /// Graceful shutdown deadline before forced cleanup; keep above application timeout.
         #[arg(long, env = "ARTISAN_SHUTDOWN_TIMEOUT", default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
         shutdown_timeout: u64,
+    },
+    /// Create public/storage -> configured FILESYSTEM_ROOT/public.
+    #[command(name = "storage:link")]
+    StorageLink {
+        /// Override the link target; defaults to FILESYSTEM_ROOT/public.
+        #[arg(long, value_name = "PATH")]
+        target: Option<PathBuf>,
+        /// Override the public link path; defaults to public/storage.
+        #[arg(long, value_name = "PATH")]
+        link: Option<PathBuf>,
+        /// Replace an existing symlink that points elsewhere; never overwrites files/directories.
+        #[arg(long, env = "ARTISAN_FORCE", value_parser = BoolishValueParser::new())]
+        force: bool,
     },
     /// Generate a missing/placeholder JWT key. Explicit --force rotates a configured key.
     #[command(name = "key:generate")]
@@ -139,6 +153,15 @@ pub async fn run() -> anyhow::Result<()> {
                 },
             )
             .await?;
+        }
+        Command::StorageLink {
+            target,
+            link,
+            force,
+        } => {
+            let _guard = project::lock(&root)?;
+            storage::link(&root, target.as_deref(), link.as_deref(), force)?;
+            println!("Public storage link is ready.");
         }
         Command::Key { force } => {
             let _guard = project::lock(&root)?;

@@ -44,7 +44,7 @@ export TEST_DATABASE_URL TEST_REDIS_URL
 export MAKE_DB_DRIVER := $(value DB_DRIVER)
 export MAKE_DB_FEATURES := $(value DB_FEATURES)
 
-.PHONY: help install setup serve key require remove update \
+.PHONY: help install setup serve key storage-link require remove update \
         controller model request dto service repository job middleware migration \
         run worker relay scheduler migrate fmt lint test check check-drivers \
         test-postgres test-mysql test-redis test-redis-transport \
@@ -64,6 +64,7 @@ help:
 	  'middleware    Generate middleware: NAME=AuditMiddleware' \
 	  'migration     Generate paired SQL migrations: NAME=create_customers_table' \
 	  'key           Generate initial JWT key (FORCE=1 rotates an existing key)' \
+	  'storage-link  Create public/storage symlink to FILESYSTEM_ROOT/public [FORCE=1]' \
 	  'require       Add crate: PACKAGE=crate@version [FEATURES=one,two] [DEV=1]' \
 	  'remove        Remove crate: PACKAGE=crate [DEV=1]' \
 	  'update        Update Cargo.lock [PACKAGE=crate]' \
@@ -95,6 +96,8 @@ serve:
 	cargo run --locked --bin artisan -- serve
 key:
 	cargo run --locked --bin artisan -- key:generate
+storage-link:
+	cargo run --locked --bin artisan -- storage:link
 require:
 	cargo run --locked --bin artisan -- require
 remove:

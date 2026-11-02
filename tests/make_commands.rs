@@ -91,6 +91,7 @@ fn artisan_wrappers_forward_the_expected_subcommands() {
         ("setup", "install"),
         ("serve", "serve"),
         ("key", "key:generate"),
+        ("storage-link", "storage:link"),
         ("controller", "make:controller"),
         ("model", "make:model"),
         ("request", "make:request"),
