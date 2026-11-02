@@ -69,11 +69,7 @@ use crate::domain::dtos::Normalize;
 #[derive(Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct __ENTITY__Request {
-    #[validate(length(
-        min = 1,
-        max = 100,
-        message = "must contain 1 to 100 characters"
-    ))]
+    #[validate(length(min = 1, max = 100, message = "must contain 1 to 100 characters"))]
     pub name: String,
 }
 

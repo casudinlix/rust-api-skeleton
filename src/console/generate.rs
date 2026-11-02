@@ -236,13 +236,7 @@ fn seeder(root: &Path, name: &Name) -> anyhow::Result<Vec<PathBuf>> {
         "src/seeders/mod.rs registry marker is missing or duplicated"
     );
 
-    let mut after = before.clone();
-    let declaration = format!("pub mod {module};\n");
-    if let Some(index) = after.find("\n\nuse anyhow::bail;") {
-        after.insert_str(index + 1, &declaration);
-    } else {
-        anyhow::bail!("src/seeders/mod.rs module insertion anchor is missing");
-    }
+    let mut after = insert_sorted_seeder_module(&before, &module)?;
     let entry = format!("        \"{class}\" => {module}::run(database).await,\n");
     after = after.replacen(MARKER, &(entry + MARKER), 1);
 
@@ -264,6 +258,33 @@ fn seeder(root: &Path, name: &Name) -> anyhow::Result<Vec<PathBuf>> {
         ],
     )?;
     Ok(vec![relative])
+}
+
+fn insert_sorted_seeder_module(source: &str, module: &str) -> anyhow::Result<String> {
+    let (module_block, rest) = source
+        .split_once("\n\nuse anyhow::bail;")
+        .context("src/seeders/mod.rs module insertion anchor is missing")?;
+
+    let mut modules = Vec::new();
+    for line in module_block.lines() {
+        let name = line
+            .strip_prefix("pub mod ")
+            .and_then(|value| value.strip_suffix(';'))
+            .context("src/seeders/mod.rs must begin with plain public module declarations")?;
+        validate_identifier(name)?;
+        modules.push(name.to_owned());
+    }
+    modules.push(module.to_owned());
+    modules.sort_unstable();
+    modules.dedup();
+
+    let declarations = modules
+        .into_iter()
+        .map(|name| format!("pub mod {name};"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(format!("{declarations}\n\nuse anyhow::bail;{rest}"))
 }
 
 fn module_change(root: &Path, relative: &Path, module: &str) -> anyhow::Result<FileChange> {
@@ -569,6 +590,21 @@ mod tests {
             assert_eq!(created, [PathBuf::from(expected)]);
             syn::parse_file(&fs::read_to_string(root.path().join(expected)).unwrap()).unwrap();
         }
+    }
+
+    #[test]
+    fn seeder_registry_is_generated_in_rustfmt_stable_module_order() {
+        let root = fixture();
+        run(root.path(), Kind::Seeder, "CustomerSeeder").unwrap();
+        run(root.path(), Kind::Seeder, "AccountSeeder").unwrap();
+
+        let registry = fs::read_to_string(root.path().join("src/seeders/mod.rs")).unwrap();
+        assert!(
+            registry.starts_with(
+                "pub mod account_seeder;\npub mod customer_seeder;\npub mod database_seeder;\n\n"
+            ),
+            "seeder modules must already match rustfmt module ordering: {registry}"
+        );
     }
 
     #[test]

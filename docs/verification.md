@@ -612,3 +612,17 @@ Two remaining failures were identified from the same run and fixed in the next c
 - `database_users` query-budget helper still read `TEST_DATABASE_URL` directly instead of the driver-aware dotenv test URL helper, causing `NotPresent` for both driver-specific test configurations.
 
 Re-run `make precommit`, `make test-mysql`, and `make test-postgres` after pulling the fix before marking the release gate complete. The same doctor output still reported the repository pre-commit hook as not installed, so run `make hooks-install` once per clone.
+
+
+## Scaffold pre-commit follow-up — 2026-11-02
+
+A full local pre-commit run reached the final `make test-scaffolds` gate after
+format, Clippy, unit/integration-nonignored tests, doc tests, and both single-driver
+compile checks passed. The generated fixture then failed only `cargo fmt --check`
+for two deterministic generator-output differences: the request validator
+attribute layout and seeder module declaration order.
+
+The generator now emits rustfmt-stable request attributes and inserts registered
+seeder modules in sorted order. A generator regression test covers repeated
+seeder insertion order. Re-run `make precommit` after pulling this change; no
+external DB/Redis matrix rerun is required solely for this formatting fix.
