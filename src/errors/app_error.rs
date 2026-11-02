@@ -6,7 +6,7 @@ use axum::{
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::utils::response::ApiResponse;
+use crate::utils::response::ApiErrorResponse;
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -74,12 +74,7 @@ impl IntoResponse for AppError {
         };
         let mut response = (
             status,
-            Json(ApiResponse::<Value> {
-                success: false,
-                message: self.to_string(),
-                data: None,
-                errors: details,
-            }),
+            Json(ApiErrorResponse::new(self.to_string(), details)),
         )
             .into_response();
         if status == StatusCode::UNAUTHORIZED {
@@ -110,6 +105,24 @@ mod tests {
         let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["message"], "Internal server error");
+        assert_eq!(value["success"], false);
+        assert!(value.get("data").is_none());
+        assert!(value.get("errors").is_none());
         assert!(!String::from_utf8_lossy(&bytes).contains("sensitive"));
+    }
+
+    #[tokio::test]
+    async fn validation_error_uses_the_standard_error_envelope() {
+        let response = AppError::Validation(serde_json::json!({
+            "email": [{"code": "email", "message": "must be valid"}]
+        }))
+        .into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["success"], false);
+        assert_eq!(value["message"], "Validation failed");
+        assert!(value["errors"]["email"].is_array());
+        assert!(value.get("data").is_none());
     }
 }

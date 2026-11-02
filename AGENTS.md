@@ -17,6 +17,15 @@ generator tidak mengalahkan aturan ini.
 - Tangani error secara eksplisit. Jangan menyembunyikan kegagalan dengan default
   sukses, blanket lint suppression, atau `unwrap`/`expect` pada input, konfigurasi,
   dan I/O produksi. Pisahkan entity internal dari request/response/read DTO.
+- Request JSON fitur baru memakai DTO `make request`: `Deserialize + Validate`,
+  `deny_unknown_fields`, dan `Normalize`; handler memakai `ValidatedJson` dan
+  service memanggil `normalize_and_validate` agar caller non-HTTP tidak melewati
+  aturan. Password/secret tidak boleh dinormalisasi atau masuk validation metadata.
+- Response JSON wajib memakai kontrak bersama: `ApiResponse` untuk success,
+  `ApiCursorResponse` untuk list cursor (`data` array + `meta.next_cursor` /
+  `meta.has_more`), dan `AppError -> ApiErrorResponse` untuk failure. Dilarang
+  membuat envelope endpoint sendiri, menaruh cursor di dalam `data`, atau
+  mengirim `data:null` pada error.
 
 ## 2. Desain database dan migration sebelum fitur
 
@@ -130,8 +139,8 @@ generator tidak mengalahkan aturan ini.
   atau payload job. Rancang migration baru dan rollout kompatibilitas terlebih
   dahulu; rename kolom tidak boleh meregenerasi ID. Laporkan ketidaksesuaian yang
   masih ada tanpa mengklaim semua legacy telah mematuhi aturan baru.
-- Tinjau output `make model`, `make repository`, dan `make migration` sebelum
-  dipakai. Berhasil compile belum membuktikan PK, UUIDv7, proyeksi, indeks, atau
+- Tinjau output `make model`, `make request`, `make repository`, dan
+  `make migration` sebelum dipakai. Berhasil compile belum membuktikan PK, UUIDv7, proyeksi, indeks, atau
   policy sudah benar. Jalankan `make test-scaffolds` jika generator berubah.
 - Tambahkan test perilaku yang relevan untuk query count, cursor, versi PK,
   constraint, transaksi, dan ekuivalensi driver. Ignored/belum dijalankan bukan

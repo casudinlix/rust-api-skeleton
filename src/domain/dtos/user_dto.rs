@@ -55,7 +55,7 @@ pub struct UserListQuery {
     pub limit: Option<u32>,
 }
 
-#[derive(Serialize)]
+/// Internal service page. HTTP handlers must wrap this with ApiCursorResponse.
 pub struct UserListResponse {
     pub items: Vec<UserResponse>,
     pub next_cursor: Option<String>,

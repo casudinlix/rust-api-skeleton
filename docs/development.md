@@ -107,6 +107,74 @@ file atau deklarasi modul yang sudah ada. Tidak ada opsi overwrite otomatis.
 | `middleware NAME=AuditMiddleware` | `src/middleware/audit.rs` |
 | `migration NAME=create_customers_table` | `migrations/{postgres,mysql}/<versi>_create_customers_table.sql` |
 
+### Request validation dan response API standar
+
+`make request NAME=CreateCustomerRequest` membuat request DTO yang siap dipakai
+sebagai batas validasi ala Form Request:
+
+```rust
+#[derive(Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct CreateCustomerRequest {
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "must contain 1 to 100 characters"
+    ))]
+    pub name: String,
+}
+
+impl Normalize for CreateCustomerRequest {
+    fn normalize(&mut self) {
+        self.name = self.name.trim().to_owned();
+    }
+}
+```
+
+Handler menerima payload melalui `ValidatedJson<CreateCustomerRequest>`.
+Extractor melakukan deserialize → normalize → validate. Service tetap memanggil
+`normalize_and_validate` pada request yang diterimanya supaya caller non-HTTP
+tidak dapat melewati validasi. Unknown field ditolak; password/secret tidak boleh
+di-trim, diubah case, atau dimasukkan ke detail error.
+
+Semua handler JSON wajib memakai helper response yang sama:
+
+```rust
+Json(ApiResponse::success("Customer retrieved", customer))
+```
+
+List cursor memakai `ApiCursorResponse`; `data` langsung berupa item array dan
+metadata pagination berada di `meta`:
+
+```json
+{
+  "success": true,
+  "message": "Customers retrieved",
+  "data": [],
+  "meta": {
+    "next_cursor": null,
+    "has_more": false
+  }
+}
+```
+
+Error hanya berasal dari `AppError` → `ApiErrorResponse`:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": {
+    "name": [
+      {"code": "length", "message": "must contain 1 to 100 characters"}
+    ]
+  }
+}
+```
+
+Untuk error tanpa detail aman, field `errors` dihilangkan. Error tidak mengirim
+`data: null`. Jangan membuat envelope khusus per endpoint.
+
 Suffix umum boleh disertakan atau dihilangkan: `Customer`, `CustomerController`,
 dan `CustomerHandler` merujuk scaffold controller yang sama. Karena itu, nama
 kedua yang menghasilkan berkas/modul sama ditolak sebagai benturan.

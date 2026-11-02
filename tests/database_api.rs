@@ -276,7 +276,7 @@ async fn exercise(driver: &str) {
         StatusCode::OK,
     )
     .await;
-    assert_eq!(response["data"]["items"].as_array().unwrap().len(), 1);
+    assert_eq!(response["data"].as_array().unwrap().len(), 1);
     call(
         &app,
         "GET",
@@ -318,7 +318,8 @@ async fn exercise(driver: &str) {
         StatusCode::OK,
     )
     .await;
-    let cursor = page["data"]["next_cursor"].as_str().unwrap();
+    assert_eq!(page["meta"]["has_more"], true);
+    let cursor = page["meta"]["next_cursor"].as_str().unwrap();
     let envelope: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(cursor).unwrap()).unwrap();
     assert_eq!(envelope["version"], 1);
     assert_eq!(envelope["resource"], "users");
@@ -333,12 +334,13 @@ async fn exercise(driver: &str) {
         StatusCode::OK,
     )
     .await;
-    assert_eq!(next_page["data"]["items"].as_array().unwrap().len(), 1);
+    assert_eq!(next_page["data"].as_array().unwrap().len(), 1);
     assert_ne!(
-        page["data"]["items"][0]["user_id"],
-        next_page["data"]["items"][0]["user_id"]
+        page["data"][0]["user_id"],
+        next_page["data"][0]["user_id"]
     );
-    assert!(next_page["data"]["next_cursor"].is_null());
+    assert!(next_page["meta"]["next_cursor"].is_null());
+    assert_eq!(next_page["meta"]["has_more"], false);
     for (field, value) in [
         ("version", json!(2)),
         ("resource", json!("jobs")),
@@ -360,7 +362,7 @@ async fn exercise(driver: &str) {
     }
     let legacy_cursor = URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(
-            &json!({"id": user_id, "created_at": response["data"]["items"][0]["created_at"]}),
+            &json!({"id": user_id, "created_at": response["data"][0]["created_at"]}),
         )
         .unwrap(),
     );

@@ -1,11 +1,11 @@
 use crate::{
     domain::dtos::{
-        RegisterRequest, UpdateUserRequest, UserListQuery, UserListResponse, UserResponse,
+        RegisterRequest, UpdateUserRequest, UserListQuery, UserResponse,
     },
     errors::{AppError, AppResult},
     middleware::auth::{AdminUser, AuthUser},
     state::AppState,
-    utils::{response::ApiResponse, validator::ValidatedJson},
+    utils::{response::{ApiCursorResponse, ApiResponse}, validator::ValidatedJson},
 };
 use axum::{
     Json,
@@ -51,12 +51,14 @@ pub async fn list(
     State(state): State<AppState>,
     _admin: AdminUser,
     query: Result<Query<UserListQuery>, QueryRejection>,
-) -> AppResult<Json<ApiResponse<UserListResponse>>> {
+) -> AppResult<Json<ApiCursorResponse<UserResponse>>> {
     let Query(query) =
         query.map_err(|_| AppError::BadRequest("Invalid pagination query".into()))?;
-    Ok(Json(ApiResponse::success(
+    let page = state.user_service.list(query).await?;
+    Ok(Json(ApiCursorResponse::success(
         "Users retrieved",
-        state.user_service.list(query).await?,
+        page.items,
+        page.next_cursor,
     )))
 }
 

@@ -483,6 +483,33 @@ mod tests {
     }
 
     #[test]
+    fn request_generator_enforces_validation_boundary_contract() {
+        let root = fixture();
+        let created = run(
+            root.path(),
+            Kind::Request,
+            "CreateCustomerRequest",
+        )
+        .unwrap();
+        assert_eq!(
+            created,
+            [PathBuf::from("src/domain/dtos/create_customer_request.rs")]
+        );
+        let source = fs::read_to_string(root.path().join(&created[0])).unwrap();
+        for requirement in [
+            "derive(Deserialize, Validate)",
+            "serde(deny_unknown_fields)",
+            "message = \"must contain 1 to 100 characters\"",
+            "impl Normalize for CreateCustomerRequest",
+        ] {
+            assert!(
+                source.contains(requirement),
+                "generated request omitted {requirement:?}"
+            );
+        }
+    }
+
+    #[test]
     fn model_and_repository_keys_follow_the_explicit_singular_entity() {
         let root = fixture();
         for (entity, module, primary_key) in [

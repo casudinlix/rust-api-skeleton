@@ -59,18 +59,24 @@ use validator::Validate;
 
 use crate::domain::dtos::Normalize;
 
-/// Replace the example field with this action's payload and validation rules.
-/// Accept this DTO with ValidatedJson and validate it again at the service boundary.
+/// Laravel-style request boundary for one action.
+/// - deny unknown fields to prevent mass assignment
+/// - normalize text before validation
+/// - keep secrets such as passwords byte-for-byte unchanged
+/// - use ValidatedJson<Self> in the handler; services re-run normalize_and_validate
 #[derive(Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct __ENTITY__Request {
-    #[validate(length(min = 1, max = 100))]
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "must contain 1 to 100 characters"
+    ))]
     pub name: String,
 }
 
 impl Normalize for __ENTITY__Request {
     fn normalize(&mut self) {
-        // Normalize user-facing text; never trim or case-fold passwords.
         self.name = self.name.trim().to_owned();
     }
 }

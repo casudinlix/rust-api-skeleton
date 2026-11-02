@@ -74,6 +74,8 @@ async fn health_is_json_and_independent_of_database() {
     let (status, headers, body) = request(app(20), "GET", "/health", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"]["status"], "ok");
+    assert!(body.get("errors").is_none());
+    assert!(body.get("meta").is_none());
     assert_eq!(headers[header::CACHE_CONTROL], "no-store");
     assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     assert!(headers.contains_key("x-request-id"));
@@ -89,6 +91,7 @@ async fn not_found_and_method_not_allowed_use_envelope() {
         assert_eq!(status, expected);
         assert_eq!(body["success"], false);
         assert!(body["message"].is_string());
+        assert!(body.get("data").is_none());
     }
 }
 
@@ -113,6 +116,7 @@ async fn validation_returns_422_without_password_values() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body["errors"]["password"].is_array());
+    assert!(body.get("data").is_none());
     assert!(!body.to_string().contains("secret"));
     assert!(!body.to_string().contains("invalid-private-email"));
 }
@@ -206,4 +210,6 @@ async fn readiness_reports_database_outage_as_503() {
     let (status, _, body) = request(app(20), "GET", "/ready", None).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body["message"], "Service temporarily unavailable");
+    assert!(body.get("data").is_none());
+    assert!(body.get("errors").is_none());
 }

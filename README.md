@@ -158,8 +158,60 @@ query dialect diverifikasi melalui integration tests pada database nyata.
 
 ## 3. Endpoint API
 
-Prefix aplikasi: `/api/v1`. Semua response aplikasi menggunakan JSON envelope;
-HEAD dan preflight OPTIONS mengikuti semantik HTTP tanpa response body.
+Prefix aplikasi: `/api/v1`. Semua response aplikasi menggunakan JSON envelope
+standar; HEAD dan preflight OPTIONS mengikuti semantik HTTP tanpa response body.
+
+### Kontrak response standar
+
+Success biasa:
+
+```json
+{
+  "success": true,
+  "message": "User retrieved",
+  "data": {
+    "user_id": "..."
+  }
+}
+```
+
+Success list dengan cursor:
+
+```json
+{
+  "success": true,
+  "message": "Users retrieved",
+  "data": [],
+  "meta": {
+    "next_cursor": null,
+    "has_more": false
+  }
+}
+```
+
+Error:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": {
+    "email": [
+      {"code": "email", "message": "must be a valid email address"}
+    ]
+  }
+}
+```
+
+`errors` hanya muncul bila ada detail aman, seperti hasil validation. Error umum
+tidak mengirim `data: null`. Handler memakai `ApiResponse` atau
+`ApiCursorResponse`; seluruh failure mengalir melalui `AppError`.
+
+Request body dibuat dengan `make request NAME=CreateCustomerRequest`. Scaffold
+menggunakan `Deserialize + Validate`, `deny_unknown_fields`, dan `Normalize`;
+handler memakainya melalui `ValidatedJson` dan service melakukan validasi ulang
+dengan `normalize_and_validate`.
+
 
 | Method | Endpoint | Akses | Fungsi |
 |---|---|---|---|
@@ -218,20 +270,24 @@ account dihapus atau signing key dirotasi.
 
 ### Cursor pagination
 
-`limit` default 20, maksimum 100. Respons daftar:
+`limit` default 20, maksimum 100. Respons daftar memakai kontrak
+`ApiCursorResponse`; item berada langsung di `data`, sedangkan metadata cursor
+berada di `meta`:
 
 ```json
 {
   "success": true,
   "message": "Users retrieved",
-  "data": {
-    "items": [],
-    "next_cursor": null
+  "data": [],
+  "meta": {
+    "next_cursor": null,
+    "has_more": false
   }
 }
 ```
 
-Jika `next_cursor` berisi nilai, kirim nilainya sebagai query `cursor` berikutnya.
+`has_more` diturunkan dari keberadaan `next_cursor`, bukan dari query count
+tambahan. Jika `next_cursor` berisi nilai, kirim nilainya sebagai query `cursor` berikutnya.
 Cursor memakai `(created_at, user_id)` descending dan tidak bergantung pada offset
 atau total count. Envelope cursor versi 1 terikat resource `users`, sort
 `created_at_desc_user_id_desc`, dan scope `admin:all`; maksimum 512 byte encoded.

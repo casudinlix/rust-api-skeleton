@@ -67,6 +67,19 @@ fn generated_scaffolds_compile_for_every_supported_driver() {
                 .current_dir(root),
         );
     }
+    let request =
+        fs::read_to_string(root.join("src/domain/dtos/create_customer_request.rs")).unwrap();
+    for required in [
+        "derive(Deserialize, Validate)",
+        "serde(deny_unknown_fields)",
+        "message = \"must contain 1 to 100 characters\"",
+        "impl Normalize for CreateCustomerRequest",
+    ] {
+        assert!(
+            request.contains(required),
+            "generated request omitted validation contract {required:?}"
+        );
+    }
     assert_eq!(fs::read(root.join("src/routes/api.rs")).unwrap(), route);
     assert_eq!(fs::read(root.join("src/jobs/worker.rs")).unwrap(), worker);
     fs::create_dir(root.join("tests")).unwrap();
