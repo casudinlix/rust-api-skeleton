@@ -67,22 +67,6 @@ pub async fn run_relay_with_probe(
     Ok(())
 }
 
-pub(super) async fn run_with_transport(
-    outbox: &OutboxQueue,
-    transport: &RedisTransport,
-    config: &QueueConfig,
-    cancellation: CancellationToken,
-) -> anyhow::Result<()> {
-    run_with_transport_observed(
-        outbox,
-        transport,
-        config,
-        cancellation,
-        Metrics::default(),
-    )
-    .await
-}
-
 pub(super) async fn run_with_transport_observed(
     outbox: &OutboxQueue,
     transport: &RedisTransport,
