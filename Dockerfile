@@ -20,9 +20,9 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=builder /build/target/release/api /build/target/release/worker /build/target/release/scheduler /build/target/release/migrate /build/target/release/relay /usr/local/bin/
 USER 10001:10001
-ENV APP_HOST=0.0.0.0 APP_PORT=3000
-EXPOSE 3000
+ENV APP_HOST=0.0.0.0 APP_PORT=3000 OBSERVABILITY_HOST=0.0.0.0
+EXPOSE 3000 9100 9101 9102 9103
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl --fail --silent --max-time 2 "http://127.0.0.1:${APP_PORT}/health" > /dev/null || exit 1
+    CMD curl --fail --silent --max-time 2 "http://127.0.0.1:9100/ready" > /dev/null || exit 1
 CMD ["api"]

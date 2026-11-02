@@ -31,6 +31,8 @@ untuk perubahan skema, kontrak API/cursor, bukti indeks, dan upgrade data lama.
 - Normalisasi sebelum validasi, JSON envelope, error terpusat, CORS allowlist.
 - Request ID, structured tracing, JSON/pretty logs, timeout, body limit,
   per-peer auth rate limit, dan graceful SIGINT/SIGTERM shutdown.
+- Listener observability terpisah per process dengan liveness, readiness,
+  Prometheus text metrics, DB-pool gauges, serta worker/relay/scheduler counters.
 - Transaksi atomik user + welcome job, leased queue claims, retry/backoff,
   stale-worker fencing, dan penyimpanan failed jobs.
 - Scheduler UTC dengan deduplikasi maintenance per menit; welcome email via SMTP
@@ -379,7 +381,8 @@ didesain aman untuk dilewati dan diulang; kebutuhan business schedule dengan
 catch-up memerlukan pencatatan occurrence tersendiri.
 
 Lihat [Panduan operasi](docs/operations.md) untuk status queue, retry manual,
-TLS database, reverse proxy, dan deployment.
+TLS database, reverse proxy, dan deployment. Health/metrics process dijelaskan di
+[panduan observability](docs/observability.md).
 
 ### Mengaktifkan worker Redis
 

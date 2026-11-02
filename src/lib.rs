@@ -12,6 +12,7 @@ pub mod errors;
 pub mod handlers;
 pub mod jobs;
 pub mod middleware;
+pub mod observability;
 pub mod repositories;
 pub mod routes;
 pub mod schedulers;

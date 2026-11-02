@@ -11,6 +11,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use crate::{
     config::SchedulerConfig,
     jobs::{JobQueue, maintenance},
+    observability::ProcessProbe,
 };
 
 use super::deduplication::maintenance_deduplication_key;
@@ -20,6 +21,15 @@ pub async fn run_scheduler(
     config: SchedulerConfig,
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
+    run_scheduler_with_probe(queue, config, cancellation, ProcessProbe::new()).await
+}
+
+pub async fn run_scheduler_with_probe(
+    queue: Arc<dyn JobQueue>,
+    config: SchedulerConfig,
+    cancellation: CancellationToken,
+    probe: ProcessProbe,
+) -> anyhow::Result<()> {
     ensure!(
         (1..=3_650).contains(&config.retention_days),
         "job retention must be 1..3650 days"
@@ -28,10 +38,12 @@ pub async fn run_scheduler(
     let tracking = tracker.clone();
     let stopping = cancellation.clone();
     let retention_days = config.retention_days;
+    let metrics = probe.metrics();
     let mut scheduler = JobScheduler::new().await?;
     let job = Job::new_async_tz(config.maintenance_cron.as_str(), Utc, move |_, _| {
         let queue = Arc::clone(&queue);
         let stopping = stopping.clone();
+        let metrics = metrics.clone();
         Box::pin(tracking.track_future(async move {
             if stopping.is_cancelled() {
                 return;
@@ -49,10 +61,13 @@ pub async fn run_scheduler(
                     Some(&key),
                 ) => {
                     if result.is_err() {
+                        metrics.scheduler_enqueue_failed();
                         tracing::error!(
                             error_code = "maintenance_enqueue_failed",
                             "could not enqueue scheduled maintenance"
                         );
+                    } else {
+                        metrics.scheduler_enqueued();
                     }
                 }
             }
@@ -63,8 +78,10 @@ pub async fn run_scheduler(
     })?;
     scheduler.add(job).await?;
     scheduler.start().await?;
+    probe.set_ready(true);
     tracing::info!(timezone = "UTC", "scheduler started");
     cancellation.cancelled().await;
+    probe.set_ready(false);
     let shutdown = scheduler.shutdown().await;
     tracker.close();
     tracker.wait().await;

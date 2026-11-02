@@ -1,3 +1,3 @@
 pub mod connection;
 
-pub use connection::DatabasePool;
+pub use connection::{DatabasePool, DatabasePoolStats};

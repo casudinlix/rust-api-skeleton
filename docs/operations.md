@@ -69,17 +69,24 @@ tambahkan policy bisnis sebelum deployment.
 
 ## Health dan observability
 
-- `/health`: liveness proses, tidak bergantung pada database.
-- `/ready`: koneksi database serta migration/checksum yang dibutuhkan binary;
-  database belum dimigrasikan menghasilkan 503. Endpoint ini tidak memeriksa
-  SMTP, Redis cache/queue, atau keberadaan worker/relay, dan tidak menggantikan
-  pemeriksaan schema manual.
-- Logs JSON default, `LOG_FORMAT=pretty` untuk lokal, `RUST_LOG` untuk level.
-- Setiap response membawa `x-request-id`; span mencatat method, path dan ID.
-  Query string, Authorization, password, DTO body, dan email recipient tidak
-  dicatat oleh middleware bawaan. SQL statement logging dinonaktifkan.
-- Job logs menyertakan ID/attempt dan kategori error, tanpa payload atau error
-  SMTP mentah. Failed jobs tetap tersedia dalam tabel untuk investigasi.
+API tetap menyediakan `/health` dan `/ready` pada port aplikasi. Selain itu,
+setiap process memiliki listener observability sendiri:
+
+| Process | Default | Fungsi |
+|---|---:|---|
+| API | 9100 | `/health`, `/ready`, `/metrics` |
+| Worker | 9101 | `/health`, `/ready`, `/metrics` |
+| Scheduler | 9102 | `/health`, `/ready`, `/metrics` |
+| Relay | 9103 | `/health`, `/ready`, `/metrics` |
+
+Default native listener hanya bind loopback. Compose membuat listener dapat
+diakses dari container network tanpa mempublish port tersebut ke host.
+
+Observability `/health` adalah process liveness tanpa dependency I/O.
+Observability `/ready` memeriksa migration/checksum database **dan** status loop
+utama process. Redis worker baru ready setelah consumer terhubung; scheduler baru
+ready setelah cron aktif; relay baru ready setelah koneksi Redis awal berhasil.
+Probe diturunkan saat shutdown/reconnect.
 
 Readiness menggunakan kebijakan ketat: daftar migration, success flag, dan
 checksum harus persis cocok dengan binary. Migration versi yang lebih baru juga
@@ -89,9 +96,21 @@ yang sengaja dirancang lebih luas. User database aplikasi memerlukan SELECT pada
 `_sqlx_migrations`. Perubahan DDL manual yang tidak tercatat di ledger tidak
 dideteksi oleh pemeriksaan checksum ini.
 
-Pantau jumlah pending/running/failed, umur job pending tertua, DB pool saturation,
-latency, response 5xx/429, serta restart worker. Integrasi OTLP/metrics backend
-belum dipasang; tracing dapat diteruskan dari stdout melalui collector deployment.
+`/metrics` menghasilkan Prometheus text tanpa label cardinality tinggi. Runtime
+mencatat request count/status/duration, SQLx pool open/idle/active, job
+started/in-flight/completed/failure, lease/transition error, Redis reconnect,
+relay publish, dan scheduler enqueue. Queue depth/oldest age tetap diambil melalui
+query diagnosis terkontrol di bagian pemeriksaan queue, bukan agregasi database
+otomatis pada setiap scrape.
+
+Logs JSON default, `LOG_FORMAT=pretty` untuk lokal, `RUST_LOG` untuk level.
+Setiap response membawa `x-request-id`; span mencatat method, path dan ID.
+Query string, Authorization, password, DTO body, dan email recipient tidak
+dicatat oleh middleware bawaan. SQL statement logging dinonaktifkan. Job logs
+menyertakan ID/attempt dan kategori error, tanpa payload atau error SMTP mentah.
+
+Lihat [panduan observability](observability.md) untuk konfigurasi port, daftar
+metric, scrape Prometheus/SigNoz, keamanan listener, dan baseline alert.
 
 ## Redis cache
 

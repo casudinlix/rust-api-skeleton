@@ -13,6 +13,7 @@ x-app: &app
     REDIS_URL: ${DOCKER_REDIS_URL:-}
     QUEUE_REDIS_URL: ${DOCKER_QUEUE_REDIS_URL:-}
     APP_HOST: 0.0.0.0
+    OBSERVABILITY_HOST: 0.0.0.0
   restart: unless-stopped
   read_only: true
   tmpfs: [/tmp]
@@ -109,18 +110,35 @@ services:
     <<: *app
     command: [api]
     ports: ["127.0.0.1:${APP_PORT:-3000}:${APP_PORT:-3000}"]
+    expose: ["9100"]
+    healthcheck:
+      test: [CMD-SHELL, "curl --fail --silent --max-time 2 http://127.0.0.1:9100/ready > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
 
   worker:
     <<: *app
     command: [worker]
+    expose: ["9101"]
     healthcheck:
-      disable: true
+      test: [CMD-SHELL, "curl --fail --silent --max-time 2 http://127.0.0.1:9101/ready > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
 
   scheduler:
     <<: *app
     command: [scheduler]
+    expose: ["9102"]
     healthcheck:
-      disable: true
+      test: [CMD-SHELL, "curl --fail --silent --max-time 2 http://127.0.0.1:9102/ready > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
 
   # Optional: set QUEUE_DRIVER=redis and QUEUE_RELAY_ENABLED=false for workers
   # when managing this relay as an independent process.
@@ -128,8 +146,13 @@ services:
     <<: *app
     profiles: [relay]
     command: [relay]
+    expose: ["9103"]
     healthcheck:
-      disable: true
+      test: [CMD-SHELL, "curl --fail --silent --max-time 2 http://127.0.0.1:9103/ready > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
 
 volumes:
   postgres_data:

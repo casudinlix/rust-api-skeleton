@@ -46,7 +46,13 @@ behavior is documented in README; update this file when an interface changes.
 - `utils::shutdown::shutdown_signal() -> impl Future<Output = ()>`.
 - `state::AppState`: `settings: Arc<Settings>`, `database: DatabasePool`,
   `cache: Arc<Cache>`, `auth_service: Arc<AuthService>`, `user_service: Arc<UserService>`,
-  `queue: Arc<dyn JobQueue>`, plus HTTP auth-rate limiter as needed.
+  `queue: Arc<dyn JobQueue>`, bounded `observability::Metrics`, plus HTTP
+  auth-rate limiter as needed.
+- `observability::ProcessProbe` owns process readiness plus the shared metrics
+  registry. Bootstrap runs a separate observability listener for API/worker/
+  scheduler/relay. `/ready` requires exact DB migration readiness plus process
+  backend readiness; `/metrics` emits bounded Prometheus text without dynamic
+  resource/user labels.
 
 ## Persistence
 

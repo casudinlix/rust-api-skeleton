@@ -11,7 +11,9 @@ use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::Subscribe
 use crate::{
     config::{QueueDriver, Settings},
     database::DatabasePool,
-    jobs, routes, schedulers,
+    jobs,
+    observability::{self, ProcessKind, ProcessProbe},
+    routes, schedulers,
     state::AppState,
     utils::shutdown::shutdown_signal,
 };
@@ -127,25 +129,42 @@ where
 pub async fn run_api() -> anyhow::Result<()> {
     let (settings, database) = initialize().await?;
     let grace = settings.app.shutdown_timeout_secs;
+    let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
+    let observability_config = settings.observability.clone();
     let address = SocketAddr::new(settings.app.host.parse()?, settings.app.port);
     let cancellation = CancellationToken::new();
     let shutdown = cancellation.clone();
+    let probe = ProcessProbe::new();
+    let metrics = probe.metrics();
+    let service_probe = probe.clone();
     let task = async {
-        let state = AppState::new(settings, database.clone())?;
+        let state = AppState::new_with_metrics(settings, database.clone(), metrics)?;
         let app = routes::api::router(state)?;
         let listener = tokio::net::TcpListener::bind(address)
             .await
             .context("could not bind API listener")?;
+        service_probe.set_ready(true);
         tracing::info!(%address, "API listening");
-        axum::serve(
+        let result = axum::serve(
             listener,
             app.into_make_service_with_connect_info::<SocketAddr>(),
         )
         .with_graceful_shutdown(shutdown.cancelled_owned())
         .into_future()
         .await
-        .context("HTTP server stopped unexpectedly")
+        .context("HTTP server stopped unexpectedly");
+        service_probe.set_ready(false);
+        result
     };
+    let task = observability::supervise(
+        task,
+        observability_config,
+        ProcessKind::Api,
+        probe,
+        database.clone(),
+        cancellation.clone(),
+        readiness_timeout,
+    );
     run_service(task, &database, cancellation, grace).await
 }
 
@@ -156,46 +175,78 @@ pub async fn run_worker() -> anyhow::Result<()> {
 pub async fn run_worker_with_driver(driver: Option<QueueDriver>) -> anyhow::Result<()> {
     let (settings, database) = initialize_with_queue_driver(driver).await?;
     let cancellation = CancellationToken::new();
-    let task = jobs::run_worker(
+    let probe = ProcessProbe::new();
+    let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
+    let observability_config = settings.observability.clone();
+    let grace = settings.app.shutdown_timeout_secs;
+    let task = jobs::run_worker_with_probe(
         database.clone(),
         settings.queue,
         settings.mail,
         cancellation.clone(),
+        probe.clone(),
     );
-    run_service(
+    let task = observability::supervise(
         task,
-        &database,
-        cancellation,
-        settings.app.shutdown_timeout_secs,
-    )
-    .await
+        observability_config,
+        ProcessKind::Worker,
+        probe,
+        database.clone(),
+        cancellation.clone(),
+        readiness_timeout,
+    );
+    run_service(task, &database, cancellation, grace).await
 }
 
 pub async fn run_relay() -> anyhow::Result<()> {
     let (settings, database) = initialize_with_queue_driver(Some(QueueDriver::Redis)).await?;
     let cancellation = CancellationToken::new();
-    let task = jobs::relay::run_relay(database.clone(), settings.queue, cancellation.clone());
-    run_service(
+    let probe = ProcessProbe::new();
+    let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
+    let observability_config = settings.observability.clone();
+    let grace = settings.app.shutdown_timeout_secs;
+    let task = jobs::relay::run_relay_with_probe(
+        database.clone(),
+        settings.queue,
+        cancellation.clone(),
+        probe.clone(),
+    );
+    let task = observability::supervise(
         task,
-        &database,
-        cancellation,
-        settings.app.shutdown_timeout_secs,
-    )
-    .await
+        observability_config,
+        ProcessKind::Relay,
+        probe,
+        database.clone(),
+        cancellation.clone(),
+        readiness_timeout,
+    );
+    run_service(task, &database, cancellation, grace).await
 }
 
 pub async fn run_scheduler() -> anyhow::Result<()> {
     let (settings, database) = initialize().await?;
     let cancellation = CancellationToken::new();
+    let probe = ProcessProbe::new();
+    let readiness_timeout = Duration::from_secs(settings.database.acquire_timeout_secs);
+    let observability_config = settings.observability.clone();
+    let grace = settings.app.shutdown_timeout_secs;
     let queue = jobs::queue_backend(&database, &settings.queue);
-    let task = schedulers::run_scheduler(queue, settings.scheduler, cancellation.clone());
-    run_service(
+    let task = schedulers::run_scheduler_with_probe(
+        queue,
+        settings.scheduler,
+        cancellation.clone(),
+        probe.clone(),
+    );
+    let task = observability::supervise(
         task,
-        &database,
-        cancellation,
-        settings.app.shutdown_timeout_secs,
-    )
-    .await
+        observability_config,
+        ProcessKind::Scheduler,
+        probe,
+        database.clone(),
+        cancellation.clone(),
+        readiness_timeout,
+    );
+    run_service(task, &database, cancellation, grace).await
 }
 
 pub async fn run_migrations() -> anyhow::Result<()> {

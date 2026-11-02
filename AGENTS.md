@@ -185,6 +185,13 @@ generator tidak mengalahkan aturan ini.
   migrations. Update readiness compatibility policy deliberately when changing rollout behavior.
 - Prefer small modules and explicit types; use `AppResult` for application paths
   and `anyhow::Result` for bootstrap/process boundaries. No unsafe code.
+- Keep the skeleton domain-neutral. Do not add project-specific RBAC, tenancy,
+  audit-domain tables, or business permissions to the generic skeleton unless a
+  concrete downstream project requires them.
+- Preserve process observability for API/worker/scheduler/relay. Metrics labels
+  must remain bounded; never label metrics with user/resource/job IDs, raw paths,
+  tenant IDs, emails, tokens, or unbounded input. Readiness must represent the
+  process backend state plus exact database migration readiness.
 - Run `make check` before proposing changes. Run both real-database suites when
   changing SQL, migrations, auth/repository integration, or queue behavior. Report
   unrun checks honestly; ignored tests are not evidence of integration success.

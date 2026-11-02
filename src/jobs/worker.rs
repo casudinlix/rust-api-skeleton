@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::{MailConfig, QueueConfig, QueueDriver},
     database::DatabasePool,
+    observability::{JobOutcome, Metrics, ProcessProbe},
     repositories::{self, UserRepository},
 };
 
@@ -57,11 +58,13 @@ struct JobExecutor {
     users: Arc<dyn UserRepository>,
     welcome: WelcomeEmailHandler,
     timeout: Duration,
+    metrics: Metrics,
 }
 
 impl JobExecutor {
     async fn execute(&self, job: ReservedJob) -> anyhow::Result<()> {
         let started = tokio::time::Instant::now();
+        self.metrics.job_started();
         tracing::info!(job_id = %job.job_id, attempt = job.attempts, kind = %job.kind, "job execution started");
         // Cancellation stops acquisition, but a claimed job gets its bounded
         // drain. If this future is dropped, its SQL lease remains recoverable.
@@ -79,6 +82,7 @@ impl JobExecutor {
         .await
         .unwrap_or(Err(JobError::TimedOut));
 
+        let handler_failed = outcome.is_err();
         let (transition, status) = match outcome {
             Ok(()) => (self.queue.ack(&job).await, "completed"),
             Err(error) => {
@@ -90,14 +94,26 @@ impl JobExecutor {
                 )
             }
         };
+        let elapsed = started.elapsed();
         match transition {
             Ok(true) => {
-                tracing::info!(job_id = %job.job_id, status, elapsed_ms = started.elapsed().as_millis() as u64, "job transition committed")
+                self.metrics.job_finished(
+                    if handler_failed {
+                        JobOutcome::HandlerFailed
+                    } else {
+                        JobOutcome::Completed
+                    },
+                    elapsed,
+                );
+                tracing::info!(job_id = %job.job_id, status, elapsed_ms = elapsed.as_millis() as u64, "job transition committed")
             }
             Ok(false) => {
+                self.metrics.job_finished(JobOutcome::LeaseLost, elapsed);
                 tracing::warn!(job_id = %job.job_id, "job lease lost; stale completion rejected")
             }
             Err(_) => {
+                self.metrics
+                    .job_finished(JobOutcome::TransitionError, elapsed);
                 tracing::error!(job_id = %job.job_id, error_code = "queue_transition_failed", "job remains recoverable after lease expiry");
                 anyhow::bail!("queue_transition_failed");
             }
@@ -112,18 +128,42 @@ pub async fn run_worker(
     mail: MailConfig,
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
+    run_worker_with_probe(
+        database,
+        config,
+        mail,
+        cancellation,
+        ProcessProbe::new(),
+    )
+    .await
+}
+
+pub async fn run_worker_with_probe(
+    database: DatabasePool,
+    config: QueueConfig,
+    mail: MailConfig,
+    cancellation: CancellationToken,
+    probe: ProcessProbe,
+) -> anyhow::Result<()> {
     validate_worker_config(&config)?;
     let executor = Arc::new(JobExecutor {
         queue: queue_backend(&database, &config),
         users: repositories::user_repository(&database),
         welcome: WelcomeEmailHandler::new(&mail)?,
         timeout: Duration::from_secs(config.job_timeout_secs),
+        metrics: probe.metrics(),
     });
     tracing::info!(driver = %config.driver, concurrency = config.concurrency, "queue worker started");
-    match config.driver {
-        QueueDriver::Database => run_database(database, config, executor, cancellation).await?,
-        QueueDriver::Redis => run_redis(database, config, executor, cancellation).await?,
-    }
+    let result = match config.driver {
+        QueueDriver::Database => {
+            run_database(database, config, executor, cancellation, probe.clone()).await
+        }
+        QueueDriver::Redis => {
+            run_redis(database, config, executor, cancellation, probe.clone()).await
+        }
+    };
+    probe.set_ready(false);
+    result?;
     tracing::info!("queue worker stopped after draining current jobs");
     Ok(())
 }
@@ -133,7 +173,9 @@ async fn run_database(
     config: QueueConfig,
     executor: Arc<JobExecutor>,
     cancellation: CancellationToken,
+    probe: ProcessProbe,
 ) -> anyhow::Result<()> {
+    probe.set_ready(true);
     // JoinSet owns every task: dropping the service aborts its acquisition loops
     // instead of leaving detached work past the shutdown deadline.
     let mut workers = JoinSet::new();
@@ -155,6 +197,7 @@ async fn run_database(
                     }
                     Ok(None) => wait_for_poll(poll, &stopping).await,
                     Err(_) => {
+                        executor.metrics.queue_claim_failed();
                         tracing::error!(
                             error_code = "queue_claim_failed",
                             "queue claim failed; retrying after poll interval"
@@ -181,10 +224,12 @@ async fn run_redis(
     config: QueueConfig,
     executor: Arc<JobExecutor>,
     cancellation: CancellationToken,
+    probe: ProcessProbe,
 ) -> anyhow::Result<()> {
     let outbox = OutboxQueue::new(database, config.clone());
     let poll = Duration::from_millis(config.poll_interval_ms);
     while !cancellation.is_cancelled() {
+        probe.set_ready(false);
         let connection = tokio::select! {
             biased;
             _ = cancellation.cancelled() => return Ok(()),
@@ -193,6 +238,7 @@ async fn run_redis(
         let transport = match connection {
             Ok(transport) => transport,
             Err(_) => {
+                executor.metrics.redis_reconnect();
                 tracing::error!(
                     error_code = "redis_queue_unavailable",
                     "Redis queue unavailable; outbox remains durable"
@@ -201,6 +247,7 @@ async fn run_redis(
                 continue;
             }
         };
+        probe.set_ready(true);
         let child = cancellation.child_token();
         let consumer = transport.run(child.clone(), config.concurrency, {
             let outbox = outbox.clone();
@@ -221,7 +268,14 @@ async fn run_redis(
         });
         let relay = async {
             if config.relay_enabled {
-                relay::run_with_transport(&outbox, &transport, &config, child.clone()).await
+                relay::run_with_transport_observed(
+                    &outbox,
+                    &transport,
+                    &config,
+                    child.clone(),
+                    executor.metrics.clone(),
+                )
+                .await
             } else {
                 child.cancelled().await;
                 Ok(())
@@ -240,7 +294,9 @@ async fn run_redis(
                 result.context("redis outbox relay stopped")
             },
         };
+        probe.set_ready(false);
         if !cancellation.is_cancelled() {
+            executor.metrics.redis_reconnect();
             tracing::error!(
                 error_code = "redis_queue_restarting",
                 failed = result.is_err(),

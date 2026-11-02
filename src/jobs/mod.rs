@@ -16,4 +16,4 @@ mod worker;
 
 pub use backend::{JobQueue, queue_backend};
 pub use queue::{DatabaseQueue, ReservedJob};
-pub use worker::run_worker;
+pub use worker::{run_worker, run_worker_with_probe};

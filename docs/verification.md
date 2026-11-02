@@ -438,3 +438,34 @@ The current execution environment did not provide a Rust toolchain, so
 this documentation/example-only alignment. The source was reviewed for consistency
 against the current public helper signatures. GitHub Actions status is not used as
 an acceptance gate.
+
+
+## Generic process observability and readiness — 2026-11-02
+
+This change raises the generic skeleton's operational readiness without adding
+domain-specific RBAC, tenant, audit, or business tables.
+
+Implemented:
+
+- separate observability listeners for API, worker, scheduler and relay;
+- `/health`, `/ready`, and Prometheus-text `/metrics` per process;
+- exact DB migration readiness retained on every process;
+- runtime readiness probe for API bind, database worker loop, Redis worker
+  consumer, scheduler start, and standalone relay Redis connection;
+- bounded in-memory counters/gauges for HTTP, SQLx pool state, worker execution,
+  queue claim failures, Redis reconnects, relay publish and scheduler enqueue;
+- Docker/Compose health checks for background processes;
+- loopback-only native defaults and non-published container-network metrics ports;
+- configuration validation for nonzero/distinct observability ports and APP_PORT
+  collision prevention.
+
+No SQL migration, queue schema, cache semantics, authentication model, or domain
+authorization model was changed.
+
+The current execution environment does not contain `rustc` or `cargo`
+(`rustc: command not found`). Therefore formatting, Clippy, compilation,
+`make check`, integration tests, Docker build/run and Compose parsing were not
+executed for this revision. Source/config/documentation consistency was reviewed
+against the current Axum/SQLx APIs and existing project contracts. This section
+must not be read as a passing runtime verification record; rerun the standard
+local verification matrix on a Rust 1.99.1 environment before tagging a release.

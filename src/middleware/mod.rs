@@ -10,6 +10,18 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
+pub async fn observe_http(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let started = std::time::Instant::now();
+    state.metrics.http_started();
+    let response = next.run(request).await;
+    state.metrics.http_finished(response.status(), started.elapsed());
+    response
+}
+
 pub async fn request_deadline(
     State(state): State<AppState>,
     request: Request,

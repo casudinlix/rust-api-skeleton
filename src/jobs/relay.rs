@@ -5,6 +5,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::{QueueConfig, QueueDriver},
     database::DatabasePool,
+    observability::{Metrics, ProcessProbe},
 };
 
 use super::{outbox::OutboxQueue, redis::RedisTransport, worker::wait_for_poll};
@@ -15,6 +16,15 @@ pub async fn run_relay(
     database: DatabasePool,
     config: QueueConfig,
     cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    run_relay_with_probe(database, config, cancellation, ProcessProbe::new()).await
+}
+
+pub async fn run_relay_with_probe(
+    database: DatabasePool,
+    config: QueueConfig,
+    cancellation: CancellationToken,
+    probe: ProcessProbe,
 ) -> anyhow::Result<()> {
     config.validate()?;
     anyhow::ensure!(
@@ -31,9 +41,21 @@ pub async fn run_relay(
         };
         match connection {
             Ok(transport) => {
-                return run_with_transport(&outbox, &transport, &config, cancellation).await;
+                probe.set_ready(true);
+                let result = run_with_transport_observed(
+                    &outbox,
+                    &transport,
+                    &config,
+                    cancellation,
+                    probe.metrics(),
+                )
+                .await;
+                probe.set_ready(false);
+                return result;
             }
             Err(_) => {
+                probe.set_ready(false);
+                probe.metrics().redis_reconnect();
                 tracing::error!(
                     error_code = "redis_queue_unavailable",
                     "relay waiting for Redis; outbox retained"
@@ -50,6 +72,23 @@ pub(super) async fn run_with_transport(
     transport: &RedisTransport,
     config: &QueueConfig,
     cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    run_with_transport_observed(
+        outbox,
+        transport,
+        config,
+        cancellation,
+        Metrics::default(),
+    )
+    .await
+}
+
+pub(super) async fn run_with_transport_observed(
+    outbox: &OutboxQueue,
+    transport: &RedisTransport,
+    config: &QueueConfig,
+    cancellation: CancellationToken,
+    metrics: Metrics,
 ) -> anyhow::Result<()> {
     let poll = Duration::from_millis(config.poll_interval_ms);
     tracing::info!("outbox relay started");
@@ -84,8 +123,10 @@ pub(super) async fn run_with_transport(
             };
             let transition = if sent.is_ok() {
                 published += 1;
+                metrics.relay_published();
                 outbox.published(&delivery).await
             } else {
+                metrics.relay_publish_failed();
                 tracing::warn!(job_id = %delivery.job_id, error_code = "outbox_publish_failed", "Redis publish failed; retry scheduled");
                 outbox.publish_failed(&delivery).await
             };

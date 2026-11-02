@@ -16,6 +16,13 @@ static MYSQL_MIGRATOR: Migrator = sqlx::migrate!("./migrations/mysql");
 type RecordedMigration = (i64, bool, Vec<u8>);
 
 /// Typed pools keep UUID, JSON and timestamp handling specific to each SQL dialect.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DatabasePoolStats {
+    pub open: u32,
+    pub idle: u32,
+    pub active: u32,
+}
+
 #[derive(Clone)]
 pub enum DatabasePool {
     #[cfg(feature = "postgres")]
@@ -153,6 +160,20 @@ impl DatabasePool {
                 .run(pool)
                 .await
                 .context("MySQL migrations failed"),
+        }
+    }
+
+    pub fn stats(&self) -> DatabasePoolStats {
+        let (open, idle) = match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(pool) => (pool.size(), pool.num_idle() as u32),
+            #[cfg(feature = "mysql")]
+            Self::Mysql(pool) => (pool.size(), pool.num_idle() as u32),
+        };
+        DatabasePoolStats {
+            open,
+            idle,
+            active: open.saturating_sub(idle),
         }
     }
 

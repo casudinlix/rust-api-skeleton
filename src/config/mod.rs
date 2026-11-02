@@ -1,12 +1,14 @@
 pub mod cache;
 pub mod database;
 pub mod queue;
+pub mod observability;
 
 pub use queue::{QueueConfig, QueueDriver, RedisQueueConfig};
 
 use anyhow::{Context, ensure};
 use cache::CacheConfig;
 use database::DatabaseConfig;
+use observability::ObservabilityConfig;
 use serde::Deserialize;
 
 #[derive(Clone)]
@@ -19,6 +21,7 @@ pub struct Settings {
     pub queue: QueueConfig,
     pub scheduler: SchedulerConfig,
     pub mail: MailConfig,
+    pub observability: ObservabilityConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -76,6 +79,11 @@ struct RawSettings {
     body_limit_bytes: usize,
     password_hash_concurrency: usize,
     auth_requests_per_minute: u32,
+    observability_host: String,
+    observability_api_port: u16,
+    observability_worker_port: u16,
+    observability_scheduler_port: u16,
+    observability_relay_port: u16,
     db_driver: String,
     database_url: String,
     db_max_connections: u32,
@@ -126,6 +134,11 @@ impl Default for RawSettings {
             body_limit_bytes: 65_536,
             password_hash_concurrency: 4,
             auth_requests_per_minute: 20,
+            observability_host: "127.0.0.1".into(),
+            observability_api_port: 9100,
+            observability_worker_port: 9101,
+            observability_scheduler_port: 9102,
+            observability_relay_port: 9103,
             db_driver: "postgres".into(),
             database_url: String::new(),
             db_max_connections: 10,
@@ -210,6 +223,16 @@ impl Settings {
                 password_hash_concurrency: raw.password_hash_concurrency,
                 auth_requests_per_minute: raw.auth_requests_per_minute,
             },
+            observability: ObservabilityConfig {
+                host: raw
+                    .observability_host
+                    .parse()
+                    .context("invalid OBSERVABILITY_HOST")?,
+                api_port: raw.observability_api_port,
+                worker_port: raw.observability_worker_port,
+                scheduler_port: raw.observability_scheduler_port,
+                relay_port: raw.observability_relay_port,
+            },
             database: DatabaseConfig {
                 driver: raw.db_driver.parse().context("invalid DB_DRIVER")?,
                 url: raw.database_url,
@@ -276,6 +299,18 @@ impl Settings {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.database.validate()?;
         self.cache.validate()?;
+        self.observability.validate()?;
+        ensure!(
+            [
+                self.observability.api_port,
+                self.observability.worker_port,
+                self.observability.scheduler_port,
+                self.observability.relay_port,
+            ]
+            .iter()
+            .all(|port| *port != self.app.port),
+            "observability ports must not reuse APP_PORT"
+        );
         self.queue.validate()?;
         ensure!(
             self.app.host.parse::<std::net::IpAddr>().is_ok(),
@@ -417,6 +452,19 @@ mod tests {
             .build()
             .unwrap();
         Settings::from_config(source).unwrap()
+    }
+
+    #[test]
+    fn observability_ports_must_be_nonzero_and_distinct() {
+        let mut s = settings();
+        s.observability.worker_port = s.observability.api_port;
+        assert!(s.validate().is_err());
+        s.observability.worker_port = 9101;
+        s.observability.relay_port = 0;
+        assert!(s.validate().is_err());
+        s.observability.relay_port = 9103;
+        s.observability.api_port = s.app.port;
+        assert!(s.validate().is_err());
     }
 
     #[test]

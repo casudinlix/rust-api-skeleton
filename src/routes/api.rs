@@ -16,7 +16,9 @@ use tower_http::{
 use crate::{
     errors::AppError,
     handlers::{auth_handler, health_handler, user_handler},
-    middleware::{cors, rate_limit::auth_rate_limit, request_deadline, security_headers},
+    middleware::{
+        cors, observe_http, rate_limit::auth_rate_limit, request_deadline, security_headers,
+    },
     state::AppState,
 };
 
@@ -46,6 +48,7 @@ pub fn router(state: AppState) -> anyhow::Result<Router> {
         .layer(SetRequestIdLayer::new(request_id.clone(), MakeRequestUuid))
         .layer(PropagateRequestIdLayer::new(request_id))
         .layer(SetSensitiveRequestHeadersLayer::new([header::AUTHORIZATION, header::COOKIE]))
+        .layer(middleware::from_fn_with_state(state.clone(), observe_http))
         .layer(TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
             // URI query strings can contain user data or accidental credentials.
             tracing::info_span!("http_request", method = %request.method(), path = %request.uri().path(), request_id = ?request.headers().get("x-request-id"))
