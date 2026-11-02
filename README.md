@@ -1,3 +1,20 @@
+## Resources
+
+- [Getting Started](docs/development.md)
+- [System Design Rules](docs/system-design-rules.md)
+- [Database Workflow](docs/database-workflow.md)
+- [API Contracts](docs/contracts.md)
+- [Filesystem & Storage](docs/filesystem.md)
+- [Observability](docs/observability.md)
+- [Swagger / OpenAPI](docs/swagger.md)
+- [Git Hooks & Pre-commit](docs/git-hooks.md)
+- [Operations Guide](docs/operations.md)
+- [Release Checklist](docs/release-checklist.md)
+- [Verification Matrix](docs/verification.md)
+- [Changelog](CHANGELOG.md)
+- [Agent Development Rules](AGENTS.md)
+
+
 # Rust API Skeleton
 
 Skeleton backend **API-only** dengan pola Laravel: controller/handler tipis,
