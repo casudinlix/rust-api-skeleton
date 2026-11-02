@@ -1,0 +1,77 @@
+name: Container security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - src/**
+      - vendor/**
+      - migrations/**
+      - public/**
+      - .github/workflows/container-security.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - src/**
+      - vendor/**
+      - migrations/**
+      - public/**
+      - .github/workflows/container-security.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check Rust dependency vulnerabilities and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: false
+      - name: Build production runtime image
+        run: docker build --pull --progress=plain --tag rust-api-skeleton:security .
+      - name: Inspect runtime identity and bundled files
+        run: |
+          set -eu
+          test "$(docker image inspect rust-api-skeleton:security --format '{{.Config.User}}')" = "10001:10001"
+          docker run --rm --entrypoint /bin/sh rust-api-skeleton:security -ec '
+            test "$(id -u)" = 10001
+            test "$(id -g)" = 10001
+            for bin in api worker scheduler migrate relay; do command -v "$bin" >/dev/null; done
+            test ! -e /app/.env
+            test ! -e /app/.git
+            test ! -e /app/target
+            test ! -e /app/storage/app/private/.env
+          '
+      - name: Scan built runtime image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: rust-api-skeleton:security
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: false
