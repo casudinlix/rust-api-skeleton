@@ -24,9 +24,7 @@ fn check_readiness(port: u16) -> std::io::Result<bool> {
     let mut connection = TcpStream::connect_timeout(&address, timeout)?;
     connection.set_read_timeout(Some(timeout))?;
     connection.set_write_timeout(Some(timeout))?;
-    connection.write_all(
-        b"GET /ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
-    )?;
+    connection.write_all(b"GET /ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")?;
 
     // We need only the status line prefix; never collect or log response bodies.
     let mut prefix = [0_u8; 13];
