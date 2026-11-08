@@ -44,9 +44,14 @@ pub fn cursor<T>(
     })
 }
 
-pub fn error(message: impl Into<String>, errors: Option<Value>) -> ApiErrorJson {
+pub fn error(
+    code: &'static str,
+    message: impl Into<String>,
+    errors: Option<Value>,
+) -> ApiErrorJson {
     Json(ApiErrorResponse {
         success: false,
+        code,
         message: message.into(),
         errors,
     })
@@ -76,6 +81,7 @@ struct CursorMeta {
 #[derive(Debug, Serialize)]
 pub struct ApiErrorResponse {
     success: bool,
+    code: &'static str,
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     errors: Option<Value>,
@@ -147,12 +153,13 @@ mod tests {
 
     #[test]
     fn error_helper_omits_errors_when_no_safe_details_exist() {
-        let Json(payload) = error("not found", None);
+        let Json(payload) = error("NOT_FOUND", "not found", None);
         let value = serde_json::to_value(payload).unwrap();
         assert_eq!(
             value,
             json!({
                 "success": false,
+                "code": "NOT_FOUND",
                 "message": "not found"
             })
         );
