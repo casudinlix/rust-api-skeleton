@@ -407,7 +407,7 @@ eksplisit. Contoh setelah binary selesai dibangun:
 ./target/debug/artisan --root /path/rust-api-skeleton make:service BillingService
 ```
 
-Image production hanya memuat binary runtime API, worker, relay, scheduler, migrate, dan `healthcheck` (probe internal tanpa shell/curl). Runtime memakai Distroless Debian 13; pemeriksaan shell `docker exec ... sh` tidak tersedia.
+Image production hanya memuat binary runtime API, worker, relay, scheduler, migrate, dan `healthcheck` (probe internal tanpa shell/curl). Runtime memakai minimal Chainguard glibc-dynamic; pemeriksaan shell `docker exec ... sh` tidak tersedia.
 Artisan adalah alat development; tidak diperlukan oleh service yang sudah
 dideploy.
 
