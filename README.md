@@ -13,6 +13,7 @@
 - [Operations Guide](docs/operations.md)
 - [Release Checklist](docs/release-checklist.md)
 - [Verification Matrix](docs/verification.md)
+- [Docker Security & CVE Remediation](docs/docker-security-audit.md)
 - [Changelog](CHANGELOG.md)
 - [Agent Development Rules](AGENTS.md)
 
