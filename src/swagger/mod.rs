@@ -365,18 +365,20 @@ fn schemas() -> Value {
         "ErrorResponse": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["success", "message"],
+            "required": ["success", "code", "message"],
             "properties": {
                 "success": {"type": "boolean", "const": false},
+                "code": {"type": "string", "example": "NOT_FOUND"},
                 "message": {"type": "string", "example": "Route not found"}
             }
         },
         "ValidationErrorResponse": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["success", "message", "errors"],
+            "required": ["success", "code", "message", "errors"],
             "properties": {
                 "success": {"type": "boolean", "const": false},
+                "code": {"type": "string", "const": "VALIDATION_FAILED"},
                 "message": {"type": "string", "const": "Validation failed"},
                 "errors": {
                     "type": "object",
