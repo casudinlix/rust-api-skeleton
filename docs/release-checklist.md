@@ -91,7 +91,7 @@ Smoke test minimal:
 5. relay ready bila dipakai;
 6. SIGTERM menghasilkan graceful shutdown;
 7. writable `/app/storage` bekerja pada read-only root filesystem;
-8. Distroless runtime tidak memerlukan shell/curl, healthcheck biner `/usr/local/bin/healthcheck` berjalan untuk setiap process;
+8. Runtime minimal tidak memerlukan shell/curl, healthcheck biner `/usr/local/bin/healthcheck` berjalan untuk setiap process;
 9. Trivy filesystem **dan** image scan tidak memiliki temuan HIGH/CRITICAL tanpa pengecualian terverifikasi.
 
 ## 6. Filesystem/logging
