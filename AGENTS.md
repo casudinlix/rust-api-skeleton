@@ -234,3 +234,12 @@ generator tidak mengalahkan aturan ini.
   unrelated Redis keys in tests or application cache helpers.
 - Never commit `.env`, generated credentials, build outputs, or local test data.
   Preserve `Cargo.lock` and the pinned toolchain for reproducible builds.
+
+## 9. Error handling dan testing (wajib)
+
+- Setiap failure HTTP memakai `AppError` dan helper global `response::error`. Pertahankan envelope `success=false`, `code` stabil (`SCREAMING_SNAKE_CASE`), `message`, dan `errors` hanya untuk detail validasi aman. Jangan expose database diagnostics, panic details, query, token, stack trace, atau error chain ke response API.
+- Tambahkan `AppError` variant hanya bila benar-benar membutuhkan status/kebijakan baru; wajib mapping status, kode, response test, dan schema OpenAPI dalam perubahan sama. Klien memutuskan berdasarkan `code`, bukan parsing string `message`.
+- Logging memakai structured `tracing` di seluruh boundary (HTTP, worker, scheduler, relay). HTTP error internal wajib logging klasifikasi dan SQLSTATE aman; request ID di header dan trace span untuk korelasi. `RUST_LOG` level debug lokal boleh aktif tetapi error chain/SQL/payload/PII/secret mentah tetap dilarang di logs. Production gunakan JSON stdout dan collection terpusat. Jangan mencetak `Debug` atau `Display` seluruh error upstream.
+- Test unit wajib untuk pure logic, mapping `AppError` dan serializer; HTTP contract test wajib memeriksa status, JSON envelope, kode error, header, dan leakage; perubahan SQL/job wajib integration test nyata untuk PostgreSQL dan MySQL (serta Redis jika relevan). Semua regression bug harus mempunyai test yang gagal sebelum diperbaiki bila dapat direproduksi.
+- Jangan memakai `.ignore`, mock database untuk membuktikan SQL benar, atau hanya compile test sebagai bukti sukses. Test external-service yang `#[ignore]` harus dijalankan di matrix masing-masing; dokumentasikan unavailable dependency secara jujur.
+- Sebelum merge jalankan `make check` plus integration matrix yang terdampak. Jangan merge bila test wajib merah. Baca `docs/error-handling.md` dan `docs/testing-standards.md` untuk contoh, matrix, dan kriteria penerimaan.

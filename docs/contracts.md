@@ -38,7 +38,7 @@ behavior is documented in README; update this file when an interface changes.
   Cursor lists additionally serialize `meta.next_cursor` and derived
   `meta.has_more`; list `data` is the item array, never a nested pagination DTO.
 - HTTP failures use `response::error` through `AppError` and serialize
-  `success=false`, `message`, plus optional safe `errors`. Error envelopes
+  `success=false`, stable `code`, `message`, plus optional safe `errors`. Error envelopes
   do not serialize `data:null`. Handlers must not invent endpoint-specific JSON
   envelopes. Service/domain code must not depend on Axum response types.
 - `utils::validator::ValidatedJson<T>(pub T)`: deserialize -> Normalize -> Validate;
@@ -222,3 +222,6 @@ UUIDv7 identities through new()/Default and repository parameters match that nam
 Run `make test-redis` with TEST_REDIS_URL for cache-driver changes; use a disposable
 Redis instance and per-test namespaces, never global flush operations.
 See `docs/verification.md` for the actual verification record and its limits.
+
+Error code catalog, safe diagnostics, log correlation and mandatory tests are defined in
+[error handling](error-handling.md) and [testing standards](testing-standards.md).
