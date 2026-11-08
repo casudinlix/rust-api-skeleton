@@ -33,10 +33,12 @@ RUN --mount=type=cache,id=rust-api-cargo-registry,target=/usr/local/cargo/regist
     rm -f /build/public/storage && \
     ln -s ../storage/app/public /build/public/storage
 
-# Debian 13 distroless C/C++ runtime provides glibc/libgcc and CA roots for
-# dynamically linked Rust. No apt, curl, bash, package manager or shell in runtime.
+# Minimal Chainguard glibc-dynamic image includes glibc, libgcc and CA roots.
+# The previous Debian 13 distroless cc image still contained two patched-but-
+# outdated zlib vulnerabilities. Rust uses rustls here and needs no shared zlib.
+# No apt, curl, bash, package manager or shell in runtime.
 # Trivy still scans all OS + library packages; no ignore-unfixed/ignorefile bypass.
-FROM gcr.io/distroless/cc-debian13:nonroot AS runtime
+FROM cgr.dev/chainguard/glibc-dynamic:latest AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/casudinlix/rust-api-skeleton" \
       org.opencontainers.image.description="Minimal non-root Rust API Skeleton runtime"
