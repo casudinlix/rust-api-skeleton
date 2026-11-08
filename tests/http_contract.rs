@@ -147,6 +147,7 @@ async fn not_found_and_method_not_allowed_use_envelope() {
         let (status, _, body) = request(app(20), method, path, None).await;
         assert_eq!(status, expected);
         assert_eq!(body["success"], false);
+        assert!(body["code"].is_string());
         assert!(body["message"].is_string());
         assert!(body.get("data").is_none());
     }
@@ -159,6 +160,7 @@ async fn protected_routes_require_authentication_before_database_access() {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
         assert_eq!(body["success"], false);
+        assert_eq!(body["code"], "UNAUTHORIZED");
     }
 }
 
@@ -172,6 +174,7 @@ async fn validation_returns_422_without_password_values() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["code"], "VALIDATION_FAILED");
     assert!(body["errors"]["password"].is_array());
     assert!(body.get("data").is_none());
     assert!(!body.to_string().contains("secret"));
@@ -267,6 +270,7 @@ async fn readiness_reports_database_outage_as_503() {
     let (status, _, body) = request(app(20), "GET", "/ready", None).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body["message"], "Service temporarily unavailable");
+    assert_eq!(body["code"], "SERVICE_UNAVAILABLE");
     assert!(body.get("data").is_none());
     assert!(body.get("errors").is_none());
 }
