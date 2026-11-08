@@ -6,6 +6,7 @@ on:
     paths:
       - Dockerfile
       - .dockerignore
+      - compose.yaml
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
@@ -18,6 +19,7 @@ on:
     paths:
       - Dockerfile
       - .dockerignore
+      - compose.yaml
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
@@ -45,6 +47,7 @@ jobs:
       - name: Check Rust dependency vulnerabilities and secrets
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.76.2
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret,misconfig
@@ -55,20 +58,32 @@ jobs:
         run: docker build --pull --progress=plain --tag rust-api-skeleton:security .
       - name: Inspect runtime identity and bundled files
         run: |
-          set -eu
+          set -euo pipefail
           test "$(docker image inspect rust-api-skeleton:security --format '{{.Config.User}}')" = "10001:10001"
-          docker run --rm --entrypoint /bin/sh rust-api-skeleton:security -ec '
-            test "$(id -u)" = 10001
-            test "$(id -g)" = 10001
-            for bin in api worker scheduler migrate relay; do command -v "$bin" >/dev/null; done
-            test ! -e /app/.env
-            test ! -e /app/.git
-            test ! -e /app/target
-            test ! -e /app/storage/app/private/.env
-          '
+
+          # Distroless deliberately has no /bin/sh or curl. Inspect by copying
+          # files from a stopped container, not by running shell commands inside.
+          container="$(docker create rust-api-skeleton:security)"
+          scratch="$(mktemp -d)"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$scratch"' EXIT
+
+          for bin in api worker scheduler migrate relay healthcheck; do
+            docker cp "$container:/usr/local/bin/$bin" "$scratch/$bin"
+            test -s "$scratch/$bin"
+          done
+          docker cp "$container:/app/storage" "$scratch/storage"
+          for forbidden in /app/.env /app/.git /app/target /app/storage/app/private/.env /bin/sh /usr/bin/curl; do
+            if docker cp "$container:$forbidden" "$scratch/forbidden" >/dev/null 2>&1; then
+              echo "::error::Forbidden runtime file present: $forbidden"
+              exit 1
+            fi
+          done
+          # Running the probe verifies that its dynamic runtime libraries load.
+          docker run --rm --entrypoint /usr/local/bin/healthcheck rust-api-skeleton:security --help
       - name: Scan built runtime image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.76.2
           scan-type: image
           image-ref: rust-api-skeleton:security
           scanners: vuln,secret,misconfig
