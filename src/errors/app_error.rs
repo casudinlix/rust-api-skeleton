@@ -130,8 +130,11 @@ impl IntoResponse for AppError {
             Self::Validation(errors) => Some(errors.clone()),
             _ => None,
         };
-        let mut response =
-            (status, response::error(self.code(), self.to_string(), details)).into_response();
+        let mut response = (
+            status,
+            response::error(self.code(), self.to_string(), details),
+        )
+            .into_response();
         if status == StatusCode::UNAUTHORIZED {
             response.headers_mut().insert(
                 header::WWW_AUTHENTICATE,
@@ -155,20 +158,72 @@ mod tests {
     #[test]
     fn public_error_codes_and_http_statuses_are_stable() {
         let cases = [
-            (AppError::BadRequest("bad request".into()), StatusCode::BAD_REQUEST, "BAD_REQUEST"),
-            (AppError::Validation(serde_json::json!({})), StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED"),
-            (AppError::Unauthorized, StatusCode::UNAUTHORIZED, "UNAUTHORIZED"),
+            (
+                AppError::BadRequest("bad request".into()),
+                StatusCode::BAD_REQUEST,
+                "BAD_REQUEST",
+            ),
+            (
+                AppError::Validation(serde_json::json!({})),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "VALIDATION_FAILED",
+            ),
+            (
+                AppError::Unauthorized,
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED",
+            ),
             (AppError::Forbidden, StatusCode::FORBIDDEN, "FORBIDDEN"),
-            (AppError::NotFound("missing".into()), StatusCode::NOT_FOUND, "NOT_FOUND"),
-            (AppError::Conflict("already exists".into()), StatusCode::CONFLICT, "CONFLICT"),
-            (AppError::TooManyRequests, StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED"),
-            (AppError::Unavailable, StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE"),
-            (AppError::PayloadTooLarge, StatusCode::PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE"),
-            (AppError::UnsupportedMediaType, StatusCode::UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_MEDIA_TYPE"),
-            (AppError::RequestTimeout, StatusCode::REQUEST_TIMEOUT, "REQUEST_TIMEOUT"),
-            (AppError::MethodNotAllowed, StatusCode::METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED"),
-            (AppError::Database(sqlx::Error::RowNotFound), StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
-            (AppError::Internal(anyhow::anyhow!("hidden")), StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
+            (
+                AppError::NotFound("missing".into()),
+                StatusCode::NOT_FOUND,
+                "NOT_FOUND",
+            ),
+            (
+                AppError::Conflict("already exists".into()),
+                StatusCode::CONFLICT,
+                "CONFLICT",
+            ),
+            (
+                AppError::TooManyRequests,
+                StatusCode::TOO_MANY_REQUESTS,
+                "RATE_LIMITED",
+            ),
+            (
+                AppError::Unavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SERVICE_UNAVAILABLE",
+            ),
+            (
+                AppError::PayloadTooLarge,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "PAYLOAD_TOO_LARGE",
+            ),
+            (
+                AppError::UnsupportedMediaType,
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "UNSUPPORTED_MEDIA_TYPE",
+            ),
+            (
+                AppError::RequestTimeout,
+                StatusCode::REQUEST_TIMEOUT,
+                "REQUEST_TIMEOUT",
+            ),
+            (
+                AppError::MethodNotAllowed,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "METHOD_NOT_ALLOWED",
+            ),
+            (
+                AppError::Database(sqlx::Error::RowNotFound),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+            ),
+            (
+                AppError::Internal(anyhow::anyhow!("hidden")),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+            ),
         ];
         for (error, expected_status, expected_code) in cases {
             assert_eq!(error.status(), expected_status, "{error:?}");
